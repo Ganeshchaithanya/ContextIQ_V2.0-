@@ -68,7 +68,9 @@ def test_partial_refunds_repeated_equal_amounts_and_delivery_window(client):
         assert client.post(f"/api/v2/purchases/{ident}/refund", json=body).json()["replayed"]
     item = client.get(f"/api/v2/purchases/{ident}").json()
     assert item["refunded_quantity"] == 2 and item["state"] == "refunded"
-    assert client.get("/api/v2/dashboard").json()["finance"]["balance_minor"] == 600000
+    restored = client.get("/api/v2/dashboard").json()
+    assert restored["finance"]["balance_minor"] == 600000
+    assert restored["allocation"]["savings_minor"] == 200000 and restored["flexible_minor"] == 50000
     merchant = client.get("/api/v2/merchant").json()
     assert merchant["sales_minor"] == merchant["refunds_minor"] == 59800
     assert "balance_minor" not in str(merchant)
@@ -142,8 +144,42 @@ def test_seed_reconciliation_and_affordability(client):
     assert financial["chart"][-1]["balance_minor"] == financial["balance_minor"]
     assert data["allocation"]["savings_minor"] == 200000
     assert data["flexible_minor"] == 50000
-    assert invoice(client, "premium")["affordability"]["remaining_minor"] == -299900
-    assert invoice(client)["affordability"]["remaining_minor"] == -149900
+    premium = invoice(client, "premium")["affordability"]
+    assert premium["remaining_minor"] == -99900 and premium["alternative"]["id"] == "headphones"
+    affordable = invoice(client)["affordability"]
+    assert affordable["remaining_minor"] == 0 and affordable["savings_after_minor"] == 50100
+
+
+def test_purchase_updates_budget_forecast_and_remaining_interests(client):
+    from app.storefront import app as shop_app
+
+    quantities = {"items": [{"product_id": "headphones", "quantity": 2}, {"product_id": "cable", "quantity": 1}]}
+    with TestClient(shop_app) as shop:
+        quote = shop.post("/handoff", headers={"Origin": "http://testserver"}, json=quantities).json()
+    token = quote["url"].split("?cart=")[1]
+    assert client.post("/api/v2/store-cart/track", json={"token": token}).status_code == 200
+    assert client.put("/api/v2/cart", json=quantities).status_code == 200
+    row = invoice(client)
+    projection = row["affordability"]
+    before = client.get("/api/v2/dashboard").json()
+    assert before["finance"]["balance_minor"] == 600000
+    assert len(client.get("/api/v2/watch").json()) == 2
+    assert client.post(f"/api/v2/invoices/{row['id']}/authorize", json={
+        "fingerprint": row["fingerprint"], "version": row["version"], "authorized": False,
+    }).status_code == 409
+    assert client.get("/api/v2/dashboard").json()["flexible_minor"] == 50000
+
+    payment = pay(client, row)
+    assert pay(client, row)["replayed"]
+    paid = client.get("/api/v2/dashboard").json()
+    assert paid["finance"]["balance_minor"] == projection["projected_funds_minor"] == 400100
+    assert paid["allocation"]["savings_minor"] == projection["savings_after_minor"] == 50100
+    assert paid["flexible_minor"] == projection["remaining_minor"] == 0
+    assert client.get("/api/v2/forecast").json()["points"][-1]["balance_minor"] == 50100
+    matching = [entry for entry in client.get("/api/v2/history").json() if entry["case_id"] == payment["case_id"]]
+    assert len(matching) == 1 and matching[0]["amount_minor"] == row["total_minor"]
+    assert {item["product_id"]: item["quantity"] for item in client.get("/api/v2/cart").json()["items"]} == {"headphones": 1, "cable": 1}
+    assert {item["title"]: item["quantity"] for item in client.get("/api/v2/watch").json()} == {"Everyday headphones": 1, "USB-C charging cable": 1}
 
 
 def test_workspace_allocates_after_bills_and_limits_savings_to_recorded_funds():

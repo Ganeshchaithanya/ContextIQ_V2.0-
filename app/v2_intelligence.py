@@ -152,7 +152,7 @@ def route(state):
 
 
 def explain(state):
-    from .v2 import bill_rows, daily_suggestions, observations, workspace
+    from .v2 import bill_rows, daily_suggestions, observations, purchase_budget, workspace
     db, uid, topic = state["db"], state["user_id"], state["topic"]
     lang = state["language"]
     template = TEXT[lang]
@@ -190,10 +190,8 @@ def explain(state):
     elif topic == "afford":
         invoice = db.scalar(select(InvoiceSnapshot).where(InvoiceSnapshot.buyer_id == uid, InvoiceSnapshot.status == "open").order_by(InvoiceSnapshot.created_at.desc()))
         if invoice:
-            funds = finance.summary(db, uid, invoice.purpose)["balance_minor"]
-            plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == uid)))
-            available = finance.spending_allocation(funds, invoice.purpose, bills, plans)["flexible_minor"]
-            facts = {"amount": money(invoice.total_minor), "free": money(available - invoice.total_minor)}
+            projected = purchase_budget(db, invoice)
+            facts = {"amount": money(invoice.total_minor), "free": money(projected["remaining_minor"])}
             destination, evidence = f"#/invoice/{invoice.id}", [invoice.id, "authorized_ledger"]
         else:
             topic, destination = "cart", "#/store"

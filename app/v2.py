@@ -548,21 +548,33 @@ def owned_invoice(db, current, ident):
     return row
 
 
+def purchase_budget(db, row):
+    prefs = db.get(Personalization, row.buyer_id).data
+    scope = "all" if prefs.get("configuration") == "unified" else row.purpose
+    funds = finance.summary(db, row.buyer_id, scope)["balance_minor"]
+    plans = list(db.scalars(select(PlanningRecord).where(
+        PlanningRecord.user_id == row.buyer_id, PlanningRecord.kind.in_(("allocation", "goal", "supplier_invoice")))))
+    bills = bill_rows(db, row.buyer_id)
+    current = finance.spending_allocation(funds, scope, bills, plans)
+    payable = row.status in ("open", "authorized", "provider_checkout")
+    projected_funds = funds - (row.total_minor if payable else 0)
+    projected = finance.spending_allocation(projected_funds, scope, bills, plans) if payable else current
+    hard_budget = funds - current["committed_minor"] - current["reserved_minor"]
+    return {"scope": scope, "funds_minor": funds, "projected_funds_minor": projected_funds,
+            "bills_minor": current["committed_minor"], "allocated_minor": current["reserved_minor"],
+            "flexible_before_minor": current["flexible_minor"], "savings_before_minor": current["savings_minor"],
+            "savings_after_minor": projected["savings_minor"], "remaining_minor": projected["flexible_minor"],
+            "alternative": next((p for p in CATALOG if p["id"] == "headphones" and p["price_minor"] <= hard_budget), None)
+            if payable and projected["flexible_minor"] < 0 and any(i.get("product_id") == "premium" for i in row.items) else None}
+
+
 def invoice_view(db, row):
     from .v2_checkout import checkout_info
-    funds = finance.summary(db, row.buyer_id, row.purpose)["balance_minor"]
-    plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == row.buyer_id)))
-    allocation = finance.spending_allocation(funds, row.purpose, bill_rows(db, row.buyer_id), plans)
-    remaining = allocation["flexible_minor"] - (0 if row.status == "paid" else row.total_minor)
     return {"id": row.id, "version": row.version, "kind": row.kind, "items": row.items, "total_minor": row.total_minor,
             "currency": row.currency, "purpose": row.purpose, "merchant": "BrightMart Electronics", "policy": row.policy,
             "status": row.status, "fingerprint": row.fingerprint, "qr_token": row.qr_token, "expires_at": aware(row.expires_at).isoformat(),
             "case_id": row.case_id, "checkout": checkout_info(db, row.id, row.case_id),
-            "affordability": {"funds_minor": funds, "bills_minor": allocation["committed_minor"],
-                              "allocated_minor": allocation["reserved_minor"] + allocation["savings_minor"],
-                              "remaining_minor": remaining,
-                              "alternative": next((p for p in CATALOG if p["id"] == "headphones" and p["price_minor"] <= allocation["flexible_minor"]), None)
-                              if remaining < 0 and any(i.get("product_id") == "premium" for i in row.items) else None}}
+            "affordability": purchase_budget(db, row)}
 
 
 @router.post("/invoices")
@@ -639,6 +651,7 @@ def finalize_payment(db, current, row, result):
     case = db.get(Case, row.case_id)
     if not result.get("ok") or case.payment_state != "captured":
         return result
+    first_settlement = row.status != "paid"
     row.status = "paid"
     owned_items = row.items if row.kind == "itemized" else []
     for item in owned_items:
@@ -650,8 +663,8 @@ def finalize_payment(db, current, row, result):
         db.add(LedgerEntry(user_id=current.seller_id, case_id=case.id, payee=db.get(User, current.buyer_id).name,
                           description=case.title, category="sales", purpose="business", amount=-case.amount,
                           currency=case.currency, settlement_key=sale_key))
-    prefs = db.get(Personalization, current.buyer_id)
-    prefs.data = prefs.data | {"cart": []}
+    if first_settlement and owned_items:
+        apply_purchased_quantities(db, current.buyer_id, owned_items)
     incident = db.scalar(select(PaymentIncident).where(PaymentIncident.case_id == case.id))
     if incident:
         incident.status = "recovered"
@@ -659,6 +672,31 @@ def finalize_payment(db, current, row, result):
     db.flush()
     db.get(User, current.buyer_id).available_balance = finance.summary(db, current.buyer_id)["balance_minor"] / 100
     return result | {"case_id": case.id, "status": "paid", "item_ids": [i["id"] for i in owned_items]}
+
+
+def apply_purchased_quantities(db, user_id, items):
+    quantities = defaultdict(int)
+    for item in items:
+        if item.get("product_id"):
+            quantities[item["product_id"]] += item["quantity"]
+    if not quantities:
+        return
+    prefs = db.get(Personalization, user_id)
+    cart = []
+    for line in prefs.data.get("cart", []):
+        remaining = line["quantity"] - quantities.get(line["product_id"], 0)
+        if remaining > 0:
+            cart.append(line | {"quantity": remaining})
+    prefs.data = prefs.data | {"cart": cart}
+    urls = {f"{settings.store_url}/product/{sku}": units for sku, units in quantities.items()}
+    watches = db.scalars(select(PriceWatch).where(PriceWatch.user_id == user_id, PriceWatch.enabled,
+                                                PriceWatch.source_url.in_(urls)))
+    for watch in watches:
+        purchased = urls[watch.source_url]
+        if purchased >= watch.quantity:
+            watch.enabled = False
+        else:
+            watch.quantity -= purchased
 
 
 @router.post("/invoices/{ident}/authorize")
@@ -1035,12 +1073,16 @@ def save_progress(ident: str, body: SavingsIn, current=Depends(session), db=Depe
 
 @router.get("/forecast")
 def forecast(current=Depends(session), db=Depends(db_dep)):
-    balance = finance.summary(db, current.buyer_id)["balance_minor"]
-    bills = bill_rows(db, current.buyer_id)
+    uid = current.buyer_id
+    scope = workspace(db.get(Personalization, uid).data)
+    balance = finance.summary(db, uid, scope)["balance_minor"]
+    plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == uid, PlanningRecord.kind == "supplier_invoice")))
+    commitments = finance.spending_allocation(balance, scope, bill_rows(db, uid), plans)["commitments"]
+    start = datetime.fromisoformat(daily_date()).date()
     points = []
     for offset in range(31):
-        date = (now() + timedelta(days=offset)).date().isoformat()
-        due = sum(b["amount_minor"] for b in bills if b["status"] == "open" and b["due"] <= date)
+        date = (start + timedelta(days=offset)).isoformat()
+        due = sum(b["amount_minor"] for b in commitments if b["due"] and b["due"][:10] <= date)
         points.append({"date": date, "balance_minor": balance - due})
     return {"points": points, "basis": "Projection deducts recorded open commitments. Unknown future income and spending are excluded."}
 

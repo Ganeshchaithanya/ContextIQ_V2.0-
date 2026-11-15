@@ -234,19 +234,26 @@ const guide = (() => {
       const data = await api("/dashboard");
       const panel = $(".daily-checklist");
       if (S.renderId !== renderId || S.route[0] !== "home" || !panel) return;
-      if (
-        data.task_date === S.dashboard.task_date &&
-        JSON.stringify(data.suggestions) ===
-          JSON.stringify(S.dashboard.suggestions)
-      )
-        return;
+      const previous = S.dashboard;
+      const listChanged = data.task_date !== previous.task_date ||
+        JSON.stringify(data.suggestions) !== JSON.stringify(previous.suggestions);
+      const figuresChanged = data.workspace !== previous.workspace ||
+        data.flexible_minor !== previous.flexible_minor ||
+        JSON.stringify(data.finance) !== JSON.stringify(previous.finance);
+      S.dashboard = data;
+      S.profile = data.profile;
+      const figures = $("[data-home-figures]");
+      if (figuresChanged && figures) {
+        figures.outerHTML = homeOverview(data);
+        drawChart("balance-chart", data.finance.chart);
+      }
+      if (!listChanged) return;
       const checkedId = document.activeElement?.dataset?.dailyTask;
       const viewControl = document.activeElement?.closest(
         ".daily-toggle, .daily-compact .daily-link",
       );
       const coverageOpen = $(".agent-coverage", panel)?.open;
-      const advanced = data.focus?.id !== S.dashboard.focus?.id;
-      S.dashboard = data;
+      const advanced = data.focus?.id !== previous.focus?.id;
       panel.innerHTML = dailyChecklist(data);
       if (advanced)
         $("[data-next-task]", panel)?.setAttribute("data-advanced", "");
@@ -379,7 +386,10 @@ const guide = (() => {
     if (document.hidden || S.busy || !activeInvoice() || invoice?.status !== "authorized") return;
     try {
       const updated = await api(`/invoices/${invoice.id}`);
-      if (updated.status === "paid" && activeInvoice() && !S.busy) await render();
+      if (updated.status === "paid" && activeInvoice() && !S.busy) {
+        publishWorkspaceUpdate();
+        await render();
+      }
     } catch {
       // A stale or disconnected session can still retry from the invoice page.
     }

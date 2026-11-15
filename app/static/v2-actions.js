@@ -1,5 +1,13 @@
 const toMinor = (value) => Math.round(Number(value) * 100);
-const purposeField = (purpose = "personal") =>
+function suggestedRecordPurpose() {
+  const profile = S.profile;
+  const scope = profile.configuration === "separate"
+    ? (profile.override === "auto" ? S.dashboard?.workspace ?? profile.workspace : profile.override)
+    : profile.configuration;
+  return scope === "business" ? "business" : "personal";
+}
+
+const purposeField = (purpose = suggestedRecordPurpose()) =>
   selectField(
     "Purpose",
     "purpose",
@@ -13,10 +21,9 @@ const amountField = (label = "Amount", name = "amount", value = "") =>
   field(label, name, value, "number", "min=0.01 step=0.01 required");
 
 function billDialog() {
-  const purpose = S.dashboard?.workspace ?? S.profile.override ?? S.profile.configuration;
   const due = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Kolkata" });
   modal(
-    `<h2>${esc(t("Add bill"))}</h2><form id="bill-form"><div class="bill-import"><label for="bill-source">${esc(t("Paste invoice text or a UPI QR payload"))}</label><textarea id="bill-source" rows="3" maxlength="4000" placeholder="Supplier: Bharat Wholesale&#10;Amount due: ₹2,450.00&#10;Due date: 20/11/2026"></textarea><p id="bill-import-status" class="field-hint" role="status">${esc(t("Paste a complete bill to add it automatically. Fill in any missing details below."))}</p></div>${field("Title", "title", "", "text", "required maxlength=100")}${amountField()}${field("Due date", "due", due, "date", "required")}${purposeField(purpose === "business" ? "business" : "personal")}${check("Repeat every 30 days", "recurring")}${formFooter("Save bill")}</form>`,
+    `<h2>${esc(t("Add bill"))}</h2><form id="bill-form"><div class="bill-import"><label for="bill-source">${esc(t("Paste invoice text or a UPI QR payload"))}</label><textarea id="bill-source" rows="3" maxlength="4000" placeholder="Supplier: Bharat Wholesale&#10;Amount due: ₹2,450.00&#10;Due date: 20/11/2026"></textarea><p id="bill-import-status" class="field-hint" role="status">${esc(t("Paste a complete bill to add it automatically. Fill in any missing details below."))}</p></div>${field("Title", "title", "", "text", "required maxlength=100")}${amountField()}${field("Due date", "due", due, "date", "required")}${purposeField()}${check("Repeat every 30 days", "recurring")}${formFooter("Save bill")}</form>`,
   );
   $("#bill-form").elements.due.dataset.autofill = due;
 }
@@ -122,7 +129,7 @@ function planDialog(kind) {
         ? `${amountField("Financed principal", "principal")}${field("Annual interest rate (%)", "annual_rate", 0, "number", "min=0 max=60 step=0.01 required")}${field("Months", "months", 12, "number", "min=1 max=120 required")}<div id="emi-estimate"></div>${button("Compare total cost", "emi-compare", "", "white")}`
         : amountField("Allocated");
   modal(
-    `<h2>${esc(t(kind === "allocation" ? "Add reserve" : "Add plan"))}</h2><form id="plan-form">${field("Title", "title", "", "text", "required maxlength=100")}${purposeField(S.dashboard?.workspace === "business" ? "business" : "personal")}<div class="form-grid">${fields}</div><div class="spacer"></div>${formFooter("Save plan")}</form>`,
+    `<h2>${esc(t(kind === "allocation" ? "Add reserve" : "Add plan"))}</h2><form id="plan-form">${field("Title", "title", "", "text", "required maxlength=100")}${purposeField()}<div class="form-grid">${fields}</div><div class="spacer"></div>${formFooter("Save plan")}</form>`,
   );
 }
 function planPayload(form) {
@@ -654,6 +661,7 @@ async function guarded(task, control) {
   } finally {
     S.busy = false;
     if (control) control.disabled = false;
+    void refreshChangedWorkspace();
   }
 }
 document.addEventListener("click", (event) => {

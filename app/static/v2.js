@@ -70,11 +70,70 @@ const configurations = [
   ["unified", "One account for everything"],
 ];
 
+const workspaceUpdates = typeof BroadcastChannel === "function" ? new BroadcastChannel("contextiq-workspace-v2") : null;
+let workspaceRefreshPending = false;
+let refreshingWorkspace = false;
+
+function publishWorkspaceUpdate() {
+  workspaceUpdates?.postMessage("records-changed");
+}
+
+function consumesWorkspaceRecords(route) {
+  return ["home", "budget", "invoice", "watch", "purchases", "activity", "notifications", "merchant"].includes(route);
+}
+
+async function refreshChangedWorkspace() {
+  if (!workspaceRefreshPending || refreshingWorkspace || !S.csrf ||
+      document.hidden || !navigator.onLine || S.busy || $("#dialog").open ||
+      !consumesWorkspaceRecords(S.route[0])) return;
+  workspaceRefreshPending = false;
+  refreshingWorkspace = true;
+  try {
+    if (S.route[0] === "home") {
+      await guide.refreshHomeFocus();
+      return;
+    }
+    const hash = location.hash;
+    const scroll = window.scrollY;
+    const search = $("#history-search")?.value;
+    const profile = await api("/profile");
+    if (location.hash !== hash) return;
+    S.profile = profile;
+    await render();
+    if (location.hash !== hash) return;
+    window.scrollTo(0, scroll);
+    const searchField = $("#history-search");
+    if (search !== undefined && searchField) {
+      searchField.value = search;
+      searchField.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  } catch {
+    // Existing views remain usable if a background refresh cannot reach the API.
+  } finally {
+    refreshingWorkspace = false;
+    if (workspaceRefreshPending) queueMicrotask(refreshChangedWorkspace);
+  }
+}
+
+function queueWorkspaceRefresh() {
+  workspaceRefreshPending = true;
+  void refreshChangedWorkspace();
+}
+
+workspaceUpdates?.addEventListener("message", ({ data }) => {
+  if (data === "records-changed") queueWorkspaceRefresh();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) queueWorkspaceRefresh();
+});
+$("#dialog").addEventListener("close", () => { void refreshChangedWorkspace(); });
+
 async function api(path, body, method) {
   if (!navigator.onLine)
     throw new Error(t("You are offline. Reconnect to load current records."));
+  const verb = method || (body === undefined ? "GET" : "POST");
   const response = await fetch(`/api/v2${path}`, {
-    method: method || (body === undefined ? "GET" : "POST"),
+    method: verb,
     credentials: "same-origin",
     cache: "no-store",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": S.csrf },
@@ -90,6 +149,8 @@ async function api(path, body, method) {
     error.status = response.status;
     throw error;
   }
+  const changedRecords = /^\/(?:profile|history|bills|business|plans|watch|purchases)(?:\/|$)|^\/store-cart\//.test(path);
+  if (verb !== "GET" && (changedRecords || data?.status === "paid")) publishWorkspaceUpdate();
   return data;
 }
 function toast(message) {
@@ -515,18 +576,22 @@ function dailyChecklist(data) {
   }${agentCoverage()}</div>`;
 }
 
+function homeOverview(data) {
+  const f = data.finance;
+  return `<div class="overview" data-home-figures><section class="balance-card"><div class="section-top"><span style="font-size:13px">${esc(t("Available funds"))}</span><span class="muted" style="font-size:12px">${esc(t(data.workspace === "all" ? "Unified" : data.workspace === "business" ? "Business" : "Personal"))} ↗</span></div><div class="amount">${money(f.balance_minor)}</div><span class="balance-note">${esc(t("Recorded demo funds"))} · INR</span><br><a class="balance-note" href="#/budget/allocation">${esc(t(data.flexible_minor < 0 ? "Budget shortfall" : "Available to spend"))} · ${money(Math.abs(data.flexible_minor))} ↗</a><div class="balance-movement"><div><div class="movement-label"><span class="circle-icon">↙</span>${esc(t("Money in"))}</div><div class="movement-value">${money(f.income_minor)}</div></div><div><div class="movement-label"><span class="circle-icon">↗</span>${esc(t("Money out"))}</div><div class="movement-value">${money(f.expense_minor)}</div></div></div></section><section class="chart-card"><div class="section-top"><h3>${esc(t("Balance over time"))}</h3><span class="period">${esc(t("Last 30 days"))}</span></div><div class="chart-wrap"><canvas id="balance-chart" role="img" aria-label="Ledger-derived balance over the last 30 days"></canvas><span class="chart-tip"></span></div><div class="reconciliation">${money(f.opening_minor)} + ${money(f.income_minor)} − ${money(f.expense_minor)} = <strong>${money(f.balance_minor)}</strong></div></section></div>`;
+}
+
 async function home() {
   const data = await api("/dashboard");
   S.dashboard = data;
-  const f = data.finance,
-    hour = new Date().getHours(),
+  const hour = new Date().getHours(),
     greeting =
       hour < 12
         ? "Good morning"
         : hour < 18
           ? "Good afternoon"
           : "Good evening";
-  return `${head(`${t(greeting)}, ${S.profile.name}.`, "A little clarity for your day.", `<span class="date-label">${date(new Date())}</span>`)}<section class="focus-card daily-checklist reminder-section" aria-labelledby="today-checklist-title">${dailyChecklist(data)}</section><div class="overview"><section class="balance-card"><div class="section-top"><span style="font-size:13px">${esc(t("Available funds"))}</span><span class="muted" style="font-size:12px">${esc(t(data.workspace === "all" ? "Unified" : data.workspace === "business" ? "Business" : "Personal"))} ↗</span></div><div class="amount">${money(f.balance_minor)}</div><span class="balance-note">${esc(t("Recorded demo funds"))} · INR</span><div class="balance-movement"><div><div class="movement-label"><span class="circle-icon">↙</span>${esc(t("Money in"))}</div><div class="movement-value">${money(f.income_minor)}</div></div><div><div class="movement-label"><span class="circle-icon">↗</span>${esc(t("Money out"))}</div><div class="movement-value">${money(f.expense_minor)}</div></div></div></section><section class="chart-card"><div class="section-top"><h3>${esc(t("Balance over time"))}</h3><span class="period">${esc(t("Last 30 days"))}</span></div><div class="chart-wrap"><canvas id="balance-chart" role="img" aria-label="Ledger-derived balance over the last 30 days"></canvas><span class="chart-tip"></span></div><div class="reconciliation">${money(f.opening_minor)} + ${money(f.income_minor)} − ${money(f.expense_minor)} = <strong>${money(f.balance_minor)}</strong></div></section></div><div class="quick-actions"><a class="quick-action" href="#/scan"><span class="quick-icon">▦</span><div><h3>${esc(t("Scan & Pay"))}</h3><p>${esc(t("Review a QR before you pay"))}</p></div><span class="arrow">↗</span></a><a class="quick-action" href="#/qr"><span class="quick-icon">＋</span><div><h3>${esc(t("Create Dynamic QR"))}</h3><p>${esc(t("An amount or a complete bill"))}</p></div><span class="arrow">↗</span></a></div><div class="bottom-note">◌ ${esc(t("Fictional data. Simulated payments."))} · ${date(data.as_of)}</div>`;
+  return `${head(`${t(greeting)}, ${S.profile.name}.`, "A little clarity for your day.", `<span class="date-label">${date(new Date())}</span>`)}<section class="focus-card daily-checklist reminder-section" aria-labelledby="today-checklist-title">${dailyChecklist(data)}</section>${homeOverview(data)}<div class="quick-actions"><a class="quick-action" href="#/scan"><span class="quick-icon">▦</span><div><h3>${esc(t("Scan & Pay"))}</h3><p>${esc(t("Review a QR before you pay"))}</p></div><span class="arrow">↗</span></a><a class="quick-action" href="#/qr"><span class="quick-icon">＋</span><div><h3>${esc(t("Create Dynamic QR"))}</h3><p>${esc(t("An amount or a complete bill"))}</p></div><span class="arrow">↗</span></a></div><div class="bottom-note">◌ ${esc(t("Fictional data. Simulated payments."))} · ${date(data.as_of)}</div>`;
 }
 function tile(title, description, path, icon) {
   return `<a class="tile" href="#/${path}"><span class="tile-icon" aria-hidden="true">${icon}</span><h2>${esc(t(title))}</h2><p>${esc(t(description))}</p><span class="tile-link">${esc(t("View details"))}<span>↗</span></span></a>`;
@@ -550,11 +615,30 @@ async function purchasesPage() {
 function invoiceRow(row) {
   return `<a class="list-row" href="#/invoice/${row.id}"><div><h3>${esc(row.items.map((i) => i.name).join(", "))}</h3><p>${esc(t("Invoice"))} #${row.id.slice(0, 8)} · ${esc(t("Version"))} ${row.version}</p></div><div class="list-amount">${money(row.total_minor)}<div style="margin-top:8px">${status(row.status)}</div></div></a>`;
 }
+function invoiceBudget(row) {
+  const a = row.affordability;
+  const payable = ["open", "authorized", "provider_checkout"].includes(row.status);
+  const reducedSavings = a.savings_after_minor < a.savings_before_minor;
+  const flexibleLabel = payable ? "Available to spend after payment" : "Available to spend";
+  const financialScope = a.scope === "all" ? "Unified" : a.scope === "business" ? "Business" : "Personal";
+  return `<section class="panel"><div class="section-top"><h3>${esc(t("Budget"))}</h3><span class="field-hint">${esc(t(financialScope))}</span></div>
+    ${kv("Recorded balance", money(a.funds_minor))}
+    ${payable && a.projected_funds_minor !== undefined ? kv("Balance after payment", money(a.projected_funds_minor)) : ""}
+    ${kv("Recorded commitments", money(a.bills_minor))}
+    ${a.allocated_minor ? kv("Manual reserves", money(a.allocated_minor)) : ""}
+    ${a.savings_after_minor !== undefined ? kv(payable ? "Planned savings after payment" : "Planned savings", money(a.savings_after_minor)) : ""}
+    ${kv(flexibleLabel, `<span class="${a.remaining_minor < 0 ? "negative" : "positive"}">${money(a.remaining_minor)}</span>`)}
+    ${reducedSavings ? `<div class="notice">${esc(t("This purchase would reduce planned savings by {amount}.").replace("{amount}", money(a.savings_before_minor - a.savings_after_minor)))}</div>` : ""}
+    ${a.remaining_minor < 0 ? `<div class="notice warn">${esc(t("This purchase exceeds your flexible funds."))}</div>` : ""}
+    ${a.alternative ? button("Consider Everyday headphones", "alternative", "", "green") : ""}
+    <div class="actions">${link("Spending Allocation", "budget/allocation", "small ghost")}</div>
+  </section>`;
+}
+
 async function invoicePage() {
   const row = await api(`/invoices/${S.route[1]}`);
   S.invoice = row;
-  const a = row.affordability;
-  return `${back("purchases/before")}${head("Invoice", `BrightMart · #${row.id.slice(0, 8)} · ${t("Version")} ${row.version}`, status(row.status))}<div class="detail-grid"><div><section class="panel"><h2>${esc(t("Review and authorize"))}</h2>${row.items.map((item) => `<div class="list-row"><div><h3>${esc(item.name)}</h3><p>${item.quantity} × ${money(item.unit_minor)}</p></div><strong>${money(item.unit_minor * item.quantity)}</strong></div>`).join("")}${kv("Total", money(row.total_minor))}${kv("Recipient", "BrightMart Electronics")}${row.status === "paid" ? kv("Payment method", esc(t(row.checkout.existing_method ? row.checkout.methods[row.checkout.existing_method] : row.checkout.methods[row.checkout.simulated_method] ? row.checkout.methods[row.checkout.simulated_method] + " · " + t("Demo") : "Mock payment"))) : ""}${kv("Purpose", esc(t(row.purpose === "business" ? "Business" : "Personal")))}${["open", "authorized", "provider_checkout"].includes(row.status) ? checkoutForm(row) : row.status === "paid" ? `<div class="notice">✓ ${esc(t("Payment confirmed"))}</div><div class="actions">${link("View purchases", "purchases/after", "green")}${link("Complete briefcase", `activity/briefcase/${row.case_id}`, "white")}</div>` : `<div class="notice warn">${esc(t(row.status))}</div>`}</section><section class="panel"><h3>${esc(t("Purchase terms"))}</h3><p class="muted" style="font-size:13px;margin-top:14px">${esc(row.policy)}</p></section></div><div><section class="panel"><h3>${esc(t("Budget"))}</h3>${kv("Available funds", money(a.funds_minor))}${kv("Recorded commitments", money(a.bills_minor))}${a.allocated_minor ? kv("Other planned reserves", money(a.allocated_minor)) : ""}${kv(row.status === "paid" ? "Flexible funds now" : "After this purchase", `<span class="${a.remaining_minor < 0 ? "negative" : "positive"}">${money(a.remaining_minor)}</span>`)}${a.remaining_minor < 0 ? `<div class="notice warn">${esc(t("This purchase exceeds your flexible funds."))}</div>` : ""}${a.alternative ? button("Consider Everyday headphones", "alternative", "", "green") : ""}</section><section class="qr-box"><h3>${esc(t(row.kind === "payment" ? "Amount-based QR" : "Itemized bill QR"))}</h3><div id="qr-image" style="margin-top:20px"></div><p class="field-hint">${esc(t("Expires"))} ${date(row.expires_at)}</p><div class="actions" style="justify-content:center;margin-top:15px">${button("Copy QR text", "copy-qr", "", "small white")}${link("Scan & Pay", "scan", "small white")}</div>${row.status === "open" ? `<div class="actions" style="justify-content:center;margin-top:12px">${button("Regenerate", "regenerate", row.id, "small ghost")}${button("Cancel invoice", "cancel-invoice", row.id, "small ghost")}</div>` : ""}</section></div></div>`;
+  return `${back("purchases/before")}${head("Invoice", `BrightMart · #${row.id.slice(0, 8)} · ${t("Version")} ${row.version}`, status(row.status))}<div class="detail-grid"><div><section class="panel"><h2>${esc(t("Review and authorize"))}</h2>${row.items.map((item) => `<div class="list-row"><div><h3>${esc(item.name)}</h3><p>${item.quantity} × ${money(item.unit_minor)}</p></div><strong>${money(item.unit_minor * item.quantity)}</strong></div>`).join("")}${kv("Total", money(row.total_minor))}${kv("Recipient", "BrightMart Electronics")}${row.status === "paid" ? kv("Payment method", esc(t(row.checkout.existing_method ? row.checkout.methods[row.checkout.existing_method] : row.checkout.methods[row.checkout.simulated_method] ? row.checkout.methods[row.checkout.simulated_method] + " · " + t("Demo") : "Mock payment"))) : ""}${kv("Purpose", esc(t(row.purpose === "business" ? "Business" : "Personal")))}${["open", "authorized", "provider_checkout"].includes(row.status) ? checkoutForm(row) : row.status === "paid" ? `<div class="notice">✓ ${esc(t("Payment confirmed"))}</div><div class="actions">${link("View purchases", "purchases/after", "green")}${link("Complete briefcase", `activity/briefcase/${row.case_id}`, "white")}</div>` : `<div class="notice warn">${esc(t(row.status))}</div>`}</section><section class="panel"><h3>${esc(t("Purchase terms"))}</h3><p class="muted" style="font-size:13px;margin-top:14px">${esc(row.policy)}</p></section></div><div>${invoiceBudget(row)}<section class="qr-box"><h3>${esc(t(row.kind === "payment" ? "Amount-based QR" : "Itemized bill QR"))}</h3><div id="qr-image" style="margin-top:20px"></div><p class="field-hint">${esc(t("Expires"))} ${date(row.expires_at)}</p><div class="actions" style="justify-content:center;margin-top:15px">${button("Copy QR text", "copy-qr", "", "small white")}${link("Scan & Pay", "scan", "small white")}</div>${row.status === "open" ? `<div class="actions" style="justify-content:center;margin-top:12px">${button("Regenerate", "regenerate", row.id, "small ghost")}${button("Cancel invoice", "cancel-invoice", row.id, "small ghost")}</div>` : ""}</section></div></div>`;
 }
 function noticeDemo() {
   return `<div class="notice">${esc(t("Fictional data. Simulated payments."))}</div>`;
@@ -575,7 +659,7 @@ function qrPage() {
       ["personal", "Personal"],
       ["business", "Business"],
     ],
-    "personal",
+    suggestedRecordPurpose(),
   )}<p class="field-hint">${esc(t("Itemized bill QR"))} → ${esc(t("Cart"))}</p><div class="actions" style="margin-top:22px"><button type="submit" class="btn green">${esc(t("Create Dynamic QR"))}</button></div></form></section>`;
 }
 function scanPage() {
