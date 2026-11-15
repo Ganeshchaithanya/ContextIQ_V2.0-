@@ -569,7 +569,7 @@ function dailyChecklist(data) {
                     "Open the payment issue to see what has been verified so far.",
                   )
                 : content.description;
-            return `<li class="daily-task${task.completed ? " daily-done" : ""}" ${next ? 'data-next-task="true" aria-current="step"' : ""}><input type="checkbox" data-daily-task="${esc(task.id)}" aria-label="${esc(t("Mark done") + ": " + content.title)}" ${task.completed ? "checked" : ""}><div>${next ? `<span class="daily-next-label">${esc(t("Next up"))}</span>` : ""}<div class="daily-task-title"><h3>${esc(content.title)}</h3>${task.completed ? "" : reminderBadge(reminderTiming(task, data.task_date))}</div><p>${esc(detail)}</p><a class="daily-link" href="${esc(content.destination)}">${esc(t(content.label))} →</a></div></li>`;
+            return `<li class="daily-task${task.completed ? " daily-done" : ""}" ${next ? 'data-next-task="true" aria-current="step"' : ""}><input type="checkbox" data-daily-task="${esc(task.id)}" aria-label="${esc(t("Mark done") + ": " + content.title)}" ${task.completed ? "checked" : ""}><div>${next ? `<span class="daily-next-label">${esc(t("Next up"))}</span>` : ""}<div class="daily-task-title"><h3>${esc(content.title)}</h3>${task.completed ? "" : reminderBadge(reminderTiming(task, data.task_date))}</div><p>${esc(detail)}</p>${next ? '<p class="field-hint" data-tara-next-tip hidden></p>' : ""}<a class="daily-link" href="${esc(content.destination)}">${esc(t(content.label))} →</a></div></li>`;
           })
           .join("")}</ul>`
       : `<p class="daily-empty">${esc(t("No tasks need your attention today."))}</p>`

@@ -938,6 +938,18 @@ class BillIn(BaseModel):
     import_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
+def bill_values(body):
+    try:
+        due = datetime.fromisoformat(body.due).replace(tzinfo=UTC)
+    except ValueError:
+        fail(422, "Enter a valid due date")
+    if body.purpose == "business":
+        kind = "recurring_supplier_payment" if body.recurring else "supplier_payment"
+    else:
+        kind = "subscription" if body.recurring else "bill"
+    return {"kind": kind, "title": body.title, "amount": body.amount_minor / 100, "due_at": due}
+
+
 @router.get("/bills")
 def bills(current=Depends(session), db=Depends(db_dep)):
     return sorted(bill_rows(db, current.buyer_id), key=lambda row: row["due"])
@@ -955,26 +967,33 @@ def merchant_desk(current=Depends(session), db=Depends(db_dep)):
 
 @router.post("/bills")
 def add_bill(body: BillIn, current=Depends(session), db=Depends(db_dep)):
-    try:
-        due = datetime.fromisoformat(body.due).replace(tzinfo=UTC)
-    except ValueError:
-        fail(422, "Enter a valid due date")
+    values = bill_values(body)
     with WRITE_LOCK:
         key = hashlib.sha256(f"bill-import:{current.buyer_id}:{body.import_key}".encode()).hexdigest() if body.import_key else None
         previous = db.get(PlanningRecord, key) if key else None
         if previous:
             return {"id": previous.data["bill_id"], "replayed": True}
-        if body.purpose == "business":
-            kind = "recurring_supplier_payment" if body.recurring else "supplier_payment"
-        else:
-            kind = "subscription" if body.recurring else "bill"
-        row = Obligation(owner_id=current.buyer_id, kind=kind, title=body.title,
-                         amount=body.amount_minor / 100, due_at=due)
+        row = Obligation(owner_id=current.buyer_id, **values)
         db.add(row)
         db.flush()
         if key:
             db.add(PlanningRecord(id=key, user_id=current.buyer_id, kind="bill_import",
                                   title=body.title, data={"bill_id": row.id}))
+        db.commit()
+        return {"id": row.id}
+
+
+@router.put("/bills/{ident}")
+def edit_bill(ident: str, body: BillIn, current=Depends(session), db=Depends(db_dep)):
+    values = bill_values(body)
+    with WRITE_LOCK:
+        row = db.get(Obligation, ident)
+        if not row or row.owner_id != current.buyer_id or row.kind not in ("bill", "subscription", *BUSINESS_BILL_KINDS):
+            fail(404, "Editable bill not found")
+        if row.status != "open":
+            fail(409, "This bill has already been settled")
+        for name, value in values.items():
+            setattr(row, name, value)
         db.commit()
         return {"id": row.id}
 
@@ -1083,6 +1102,21 @@ def create_plan(body: PlanIn, current=Depends(session), db=Depends(db_dep)):
 
 class SavingsIn(BaseModel):
     saved_minor: int = Field(ge=0, le=100000000)
+
+
+class ReserveIn(BaseModel):
+    amount_minor: int = Field(ge=0, le=100000000)
+
+
+@router.put("/plans/{ident}/reserve")
+def edit_reserve(ident: str, body: ReserveIn, current=Depends(session), db=Depends(db_dep)):
+    with WRITE_LOCK:
+        row = db.get(PlanningRecord, ident)
+        if not row or row.user_id != current.buyer_id or row.kind != "allocation":
+            fail(404, "Manual reserve not found")
+        row.data = row.data | {"amount_minor": body.amount_minor}
+        db.commit()
+        return {"ok": True}
 
 
 @router.put("/plans/{ident}/savings")
@@ -1242,6 +1276,15 @@ def ask(body: AskIn, current=Depends(session), db=Depends(db_dep)):
 def ask_history(current=Depends(session), db=Depends(db_dep)):
     rows = db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == current.buyer_id, PlanningRecord.kind == "conversation"))
     return sorted([row.data for row in rows], key=lambda row: row["at"])[-30:]
+
+
+@router.get("/guide/tip")
+def guide_tip(kind: str, urgency: Literal["urgent", "soon", "normal"] = "normal", current=Depends(session)):
+    from .v2_intelligence import NEXT_TIPS, proactive_tip
+
+    if kind not in NEXT_TIPS:
+        fail(422, "Unknown guide topic")
+    return proactive_tip(kind, urgency)
 
 
 def observation_worker(stop):

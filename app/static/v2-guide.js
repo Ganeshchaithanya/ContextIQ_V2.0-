@@ -15,6 +15,7 @@ const guide = (() => {
   let highlighted = null;
   let openTip = null;
   let openAlert = null;
+  const nextTips = new Map();
   const dismissed = new Set();
   const seenAlerts = new Set();
   const alertStorageKey = "contextiq.urgent-reminders.v1";
@@ -325,9 +326,33 @@ const guide = (() => {
     panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">${current.alert ? "◴" : "✦"}</span> ${esc(current.alert ? `Tara · ${current.alert.label}` : t("Tara, your visual guide"))}</span><button type="button" class="guide-close" data-guide="dismiss" aria-label="${esc(t("Dismiss this tip"))}">×</button></div><div class="guide-copy" role="status" aria-live="polite"><h2>${esc(current.title)}</h2><p>${esc(current.body)}</p></div><div class="guide-controls"><button type="button" class="btn green small" data-guide="show">${esc(t("Show me"))} <span aria-hidden="true">↗</span></button><button type="button" class="guide-pause" data-guide="pause">${esc(t("Pause tips"))}</button></div>`;
   }
 
+  async function updateNextTip() {
+    const task = S.route[0] === "home" && S.dashboard?.focus;
+    const tip = $("[data-tara-next-tip]");
+    if (!task || !tip) return;
+    if (paused) {
+      tip.hidden = true;
+      return;
+    }
+    const timing = reminderTiming(task, S.dashboard.task_date)?.tone;
+    const urgency = ["urgent", "soon"].includes(timing) ? timing : "normal";
+    const key = `${task.kind}:${urgency}`;
+    if (!nextTips.has(key)) nextTips.set(key, api(`/guide/tip?kind=${task.kind}&urgency=${urgency}`));
+    try {
+      const result = await nextTips.get(key);
+      if (!paused && tip.isConnected && S.dashboard?.focus?.id === task.id) {
+        tip.textContent = t(result.text);
+        tip.hidden = false;
+      }
+    } catch {
+      nextTips.delete(key);
+    }
+  }
+
   function update() {
     current = pageCue();
     draw();
+    void updateNextTip();
   }
 
   function clear() {
@@ -373,6 +398,7 @@ const guide = (() => {
     $(
       command === "open" ? '[data-guide="show"]' : '[data-guide="open"]',
     )?.focus();
+    void updateNextTip();
   });
 
   $("#dialog").addEventListener("close", update);

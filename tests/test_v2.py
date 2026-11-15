@@ -212,6 +212,10 @@ def test_price_linked_savings_recalculate_and_release_after_purchase(client, mon
     settings_path = f"/api/v2/plans/{plan['id']}/purchase"
     assert client.put(settings_path, json={"target_date": (due + timedelta(days=20)).isoformat()}).status_code == 200
     assert goal()["data"]["contribution_minor"] == 50000
+    assert client.put(settings_path, json={"monthly_override_minor": 18000}).status_code == 200
+    assert goal()["data"]["contribution_minor"] == 18000
+    assert client.put(settings_path, json={"monthly_override_minor": None}).status_code == 200
+    assert goal()["data"]["contribution_minor"] == 50000
     assert client.put(settings_path, json={"active": False}).status_code == 200
     assert client.get("/api/v2/dashboard").json()["flexible_minor"] == 50000
     assert client.put(settings_path, json={"active": True}).status_code == 200
@@ -490,6 +494,45 @@ def test_auto_import_is_idempotent_and_business_bills_recur(client):
     assert len(rows) == 2
     upcoming, = [row for row in rows if row["status"] == "open"]
     assert upcoming["purpose"] == "business" and upcoming["due"] == "2026-12-20"
+
+
+def test_editable_defaults_update_open_bill_and_reserve_without_posting_payments(client):
+    draft = {"title": "Stock order", "amount_minor": 140000, "purpose": "personal", "due": "2026-11-20"}
+    bill = client.post("/api/v2/bills", json=draft).json()
+    reserve = client.post("/api/v2/plans", json={
+        "kind": "allocation", "title": "Packaging", "amount_minor": 15000,
+    }).json()
+    assert client.put(f"/api/v2/plans/{reserve['id']}/reserve", json={"amount_minor": 12000}).status_code == 200
+    path = f"/api/v2/bills/{bill['id']}"
+    assert client.put(path, json=draft | {"amount_minor": 20000}).status_code == 200
+    updated = client.get("/api/v2/dashboard").json()
+    assert updated["finance"]["balance_minor"] == 600000
+    assert updated["allocation"]["committed_minor"] == 370000
+    assert updated["allocation"]["reserved_minor"] == 12000 and updated["flexible_minor"] == 18000
+    assert client.post(f"{path}/record-payment", json={"confirmed": True}).status_code == 200
+    assert client.put(path, json=draft).status_code == 409
+
+
+def test_proactive_tara_tip_uses_only_the_predefined_context(client, monkeypatch):
+    from app import v2_intelligence
+
+    calls = []
+
+    def choose_hint(system, question, **options):
+        calls.append(question)
+        return {"choice": 1}
+
+    monkeypatch.setattr(v2_intelligence.llm, "complete", choose_hint)
+    v2_intelligence.cached_proactive_tip.cache_clear()
+    try:
+        path = "/api/v2/guide/tip?kind=bill&urgency=urgent"
+        result = client.get(path).json()
+        assert result == {"text": v2_intelligence.NEXT_TIPS["bill"][1], "routing": "llm"}
+        assert client.get(path).json() == result
+        assert len(calls) == 1 and calls[0].startswith("Task: bill. Urgency: urgent.")
+        assert client.get("/api/v2/guide/tip?kind=nonexistent").status_code == 422
+    finally:
+        v2_intelligence.cached_proactive_tip.cache_clear()
 
 
 @pytest.mark.parametrize("language,questions", [

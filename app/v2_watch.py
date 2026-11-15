@@ -32,6 +32,7 @@ class SharedCart(BaseModel):
 class PurchasePlanIn(BaseModel):
     target_date: date | None = None
     active: bool | None = None
+    monthly_override_minor: int | None = Field(default=None, ge=0, le=100000000)
 
 
 def purchase_plan_key(watch_id):
@@ -233,6 +234,7 @@ def plan_purchase(ident: str, body: PurchasePlanIn, current=Depends(session), db
         plan = PlanningRecord(id=purchase_plan_key(watch.id), user_id=current.buyer_id, kind="goal",
                               title=watch.title, purpose="business" if scope == "business" else "personal",
                               data={"linked_watch_id": watch.id, "product_id": product_id, "status": "active",
+                                    "monthly_override_minor": body.monthly_override_minor,
                                     "saved_minor": 0, "target_date": purchase_date(body.target_date)})
         update_purchase_plan(plan, watch)
         db.add(plan)
@@ -251,6 +253,8 @@ def update_purchase_goal(ident: str, body: PurchasePlanIn, current=Depends(sessi
         data = dict(plan.data)
         if body.target_date:
             data["target_date"] = purchase_date(body.target_date)
+        if "monthly_override_minor" in body.model_fields_set:
+            data["monthly_override_minor"] = body.monthly_override_minor
         if body.active is not None:
             watch = db.get(PriceWatch, data["linked_watch_id"])
             if body.active and (not watch or not watch.enabled):

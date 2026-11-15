@@ -2,7 +2,7 @@ async function allocationPage() {
   S.dashboard = await api("/dashboard");
   const { allocation, finance, workspace } = S.dashboard;
   if (!allocation) return `${back("budget")}${head("Spending Allocation")}<section class="panel"><p>${esc(t("Allocation is temporarily unavailable. Reload to retry."))}</p></section>`;
-  const group = (title, rows) => rows.length ? `<section class="panel"><h2>${esc(t(title))}</h2>${rows.map((row) => `<div class="list-row"><div><h3>${row.destination ? `<a href="${esc(row.destination)}">${esc(row.title)} ↗</a>` : esc(row.title)}</h3>${row.due ? `<p>${esc(t("Due date"))} · ${date(row.due)}</p>` : ""}${row.requested_minor > row.amount_minor ? `<p>${esc(t("Planned contribution"))} · ${money(row.requested_minor)}</p>` : ""}</div><strong>${money(row.amount_minor)}</strong></div>`).join("")}</section>` : "";
+  const group = (title, rows) => rows.length ? `<section class="panel"><h2>${esc(t(title))}</h2>${rows.map((row) => `<div class="list-row"><div><h3>${row.destination ? `<a href="${esc(row.destination)}">${esc(row.title)} ↗</a>` : esc(row.title)}</h3>${row.due ? `<p>${esc(t("Due date"))} · ${date(row.due)}</p>` : ""}${row.requested_minor > row.amount_minor ? `<p>${esc(t("Planned contribution"))} · ${money(row.requested_minor)}</p>` : ""}</div><div><strong>${money(row.amount_minor)}</strong>${row.destination || !row.id ? "" : button("Edit reserve", "reserve-edit", row.id, "small ghost")}</div></div>`).join("")}</section>` : "";
   const flexible = allocation.flexible_minor;
   return `${back("budget")}${head("Spending Allocation", "Updates automatically from your recorded money.", button("Add reserve", "plan-dialog", "allocation", "white"))}<section class="panel"><div class="section-top"><h2>${esc(t(flexible < 0 ? "Budget shortfall" : "Available to spend"))} · ${money(Math.abs(flexible))}</h2><span class="field-hint">${esc(t(workspace === "all" ? "Unified" : workspace === "business" ? "Business" : "Personal"))}</span></div>${kv("Recorded balance", money(finance.balance_minor))}${kv("Bills, supplier invoices and EMIs", money(allocation.committed_minor))}${kv("Manual reserves", money(allocation.reserved_minor))}${kv("Planned savings", money(allocation.savings_minor))}<p class="field-hint">${esc(t("These amounts are set aside in your plan. Your recorded balance changes when you record money in or out."))}</p></section><div class="grid two">${group("Bills and commitments", allocation.commitments)}${group("Goal contributions", allocation.savings)}${group("Manual reserves", allocation.reserves)}</div>`;
 }
@@ -79,13 +79,13 @@ async function budgetPage() {
       .join("")}</div>`;
   if (section === "income") return historyPage();
   if (["bills", "business-bills"].includes(section)) {
-    const all = await api("/bills");
+    const all = S.bills = await api("/bills");
     const rows = all.filter(
       (r) =>
         (!S.route[2] || r.id === S.route[2]) &&
         (section !== "business-bills" || r.purpose === "business"),
     );
-    return `${back("budget")}${head("Bills & Commitments", "Recorded commitments", button("Add bill", "bill-dialog", "", "green"))}<section class="panel">${rows.map((r) => `<div class="list-row"><div><h3>${esc(r.title)}</h3><p>${date(r.due)} · ${esc(t(r.purpose === "business" ? "Business" : "Personal"))} · ${status(r.status)}</p></div><div class="list-amount">${money(r.amount_minor)}<div class="spacer"></div>${r.status === "open" ? button("Record payment", "bill-pay", r.id, "small white") : ""}</div></div>`).join("") || empty("budget", "Budget")}</section>`;
+    return `${back("budget")}${head("Bills & Commitments", "Recorded commitments", button("Add bill", "bill-dialog", "", "green"))}<section class="panel">${rows.map((r) => `<div class="list-row"><div><h3>${esc(r.title)}</h3><p>${date(r.due)} · ${esc(t(r.purpose === "business" ? "Business" : "Personal"))} · ${status(r.status)}</p></div><div class="list-amount">${money(r.amount_minor)}<div class="spacer"></div>${r.status === "open" ? `<div class="actions">${r.kind !== "emi" ? button("Edit bill", "bill-edit", r.id, "small ghost") : ""}${button("Record payment", "bill-pay", r.id, "small white")}</div>` : ""}</div></div>`).join("") || empty("budget", "Budget")}</section>`;
   }
   if (section === "forecast") {
     S.forecast = await api("/forecast");

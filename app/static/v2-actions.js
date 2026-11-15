@@ -20,10 +20,11 @@ const purposeField = (purpose = suggestedRecordPurpose()) =>
 const amountField = (label = "Amount", name = "amount", value = "") =>
   field(label, name, value, "number", "min=0.01 step=0.01 required");
 
-function billDialog() {
-  const due = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Kolkata" });
+function billDialog(record) {
+  const due = record?.due || new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Kolkata" });
+  const importer = record ? "" : `<div class="bill-import"><label for="bill-source">${esc(t("Paste invoice text or a UPI QR payload"))}</label><textarea id="bill-source" rows="3" maxlength="4000" placeholder="Supplier: Bharat Wholesale&#10;Amount due: ₹2,450.00&#10;Due date: 20/11/2026"></textarea><p id="bill-import-status" class="field-hint" role="status">${esc(t("Paste a complete bill to add it automatically. Fill in any missing details below."))}</p></div>`;
   modal(
-    `<h2>${esc(t("Add bill"))}</h2><form id="bill-form"><div class="bill-import"><label for="bill-source">${esc(t("Paste invoice text or a UPI QR payload"))}</label><textarea id="bill-source" rows="3" maxlength="4000" placeholder="Supplier: Bharat Wholesale&#10;Amount due: ₹2,450.00&#10;Due date: 20/11/2026"></textarea><p id="bill-import-status" class="field-hint" role="status">${esc(t("Paste a complete bill to add it automatically. Fill in any missing details below."))}</p></div>${field("Title", "title", "", "text", "required maxlength=100")}${amountField()}${field("Due date", "due", due, "date", "required")}${purposeField()}${check("Repeat every 30 days", "recurring")}${formFooter("Save bill")}</form>`,
+    `<h2>${esc(t(record ? "Edit bill" : "Add bill"))}</h2><form id="bill-form" data-bill-id="${esc(record?.id || "")}">${importer}${field("Title", "title", record?.title || "", "text", "required maxlength=100")}${amountField("Amount", "amount", record ? record.amount_minor / 100 : "")}${field("Due date", "due", due, "date", "required")}${purposeField(record?.purpose)}${check("Repeat every 30 days", "recurring", ["subscription", "recurring_supplier_payment"].includes(record?.kind))}${formFooter("Save bill")}</form>`,
   );
   $("#bill-form").elements.due.dataset.autofill = due;
 }
@@ -264,11 +265,16 @@ async function useCamera() {
 }
 
 async function action(name, id) {
+  if (name === "reserve-edit") {
+    const reserve = S.dashboard.allocation.reserves.find((row) => row.id === id);
+    return modal(`<h2>${esc(t("Edit reserve"))}</h2><p>${esc(reserve.title)}</p><form id="reserve-form" data-reserve-id="${esc(id)}">${field("Amount", "amount", reserve.amount_minor / 100, "number", "min=0 max=1000000 step=0.01 required")}${formFooter("Save plan")}</form>`);
+  }
   if (name === "purchase-plan-dialog" || name === "purchase-plan-date") {
     const existing = name === "purchase-plan-date" ? S.plans.find((plan) => plan.id === id) : null;
     const defaultDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString("sv-SE", {timeZone: "Asia/Kolkata"});
     const endpoint = existing ? `/plans/${id}/purchase` : `/watch/${id}/plan`;
-    return modal(`<h2>${esc(t("Plan to buy"))}</h2><p>${esc(t("Tara adjusts savings when the tracked price changes."))}</p><form id="purchase-plan-form" data-endpoint="${esc(endpoint)}" data-method="${existing ? "PUT" : "POST"}">${field("Target date", "target_date", existing?.data.target_date || defaultDate, "date", "required")}${formFooter("Save plan")}</form>`);
+    const override = existing?.data.monthly_override_minor;
+    return modal(`<h2>${esc(t(existing ? "Edit purchase plan" : "Plan to buy"))}</h2><p>${esc(t("Tara adjusts savings when the tracked price changes."))}</p><form id="purchase-plan-form" data-endpoint="${esc(endpoint)}" data-method="${existing ? "PUT" : "POST"}">${field("Target date", "target_date", existing?.data.target_date || defaultDate, "date", "required")}${field("Monthly savings override", "monthly_override", override == null ? "" : override / 100, "number", "min=0 max=1000000 step=0.01")}${t("Leave the monthly amount blank for automatic savings.")}${formFooter("Save plan")}</form>`);
   }
   if (name === "purchase-plan-toggle") {
     const plan = S.plans.find((row) => row.id === id);
@@ -424,6 +430,7 @@ async function action(name, id) {
     return;
   }
   if (name === "bill-dialog") return billDialog();
+  if (name === "bill-edit") return billDialog(S.bills.find((row) => row.id === id));
   if (name === "bill-pay")
     return modal(
       `<h2>${esc(t("Record payment"))}</h2><p>${esc(t("This records a payment you made elsewhere. It does not initiate a bank transfer."))}</p><div class="actions">${button("Confirm payment record", "bill-pay-confirm", id, "green")}${button("Cancel", "close", "", "white")}</div>`,
@@ -532,8 +539,15 @@ async function action(name, id) {
 }
 
 async function submit(form) {
+  if (form.id === "reserve-form") {
+    await api(`/plans/${form.dataset.reserveId}/reserve`, { amount_minor: toMinor(form.elements.amount.value) }, "PUT");
+    closeModal();
+    return render();
+  }
   if (form.id === "purchase-plan-form") {
-    const plan = await api(form.dataset.endpoint, { target_date: form.elements.target_date.value }, form.dataset.method);
+    const amount = form.elements.monthly_override.value;
+    const plan = await api(form.dataset.endpoint, { target_date: form.elements.target_date.value,
+      monthly_override_minor: amount === "" ? null : toMinor(amount) }, form.dataset.method);
     closeModal();
     const path = `budget/goals/${plan.id}`;
     return navigate(path);
@@ -631,15 +645,17 @@ async function submit(form) {
       confirmed: !!data.confirmed,
       request_id: crypto.randomUUID(),
     });
-  if (form.id === "bill-form")
-    await api("/bills", {
+  if (form.id === "bill-form") {
+    const ident = form.dataset.billId;
+    await api(ident ? `/bills/${ident}` : "/bills", {
       title: data.title,
       amount_minor: toMinor(data.amount),
       due: data.due,
       purpose: data.purpose,
       recurring: !!data.recurring,
       import_key: form.dataset.importKey,
-    });
+    }, ident ? "PUT" : "POST");
+  }
   if (form.id === "plan-form") await api("/plans", planPayload(form));
   if (form.id === "savings-form")
     await api(

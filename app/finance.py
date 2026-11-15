@@ -58,9 +58,13 @@ def goal_contribution(data, today, bought_quantity=0, bought_minor=0):
         return min(data.get("contribution_minor", 0), max(0, data["target_minor"] - data["saved_minor"]))
     target = max(0, data["purchase_quantity"] - bought_quantity) * data["price_minor"]
     saved = max(0, data["saved_minor"] - bought_minor)
+    remaining = max(0, target - saved)
+    override = data.get("monthly_override_minor")
+    if override is not None:
+        return min(override, remaining)
     days = (date.fromisoformat(data["target_date"]) - today).days
     periods = max(1, (days + 29) // 30)
-    return (max(0, target - saved) + periods - 1) // periods
+    return (remaining + periods - 1) // periods
 
 
 def spending_allocation(balance, purpose, bills, plans, purchase=None, purchase_purpose=None):
@@ -78,7 +82,7 @@ def spending_allocation(balance, purpose, bills, plans, purchase=None, purchase_
     ]
     commitments.sort(key=lambda row: row["due"] or "9999-12-31")
     committed = sum(row["amount_minor"] for row in commitments)
-    reserves = [{"title": row.title, "amount_minor": row.data.get("amount_minor", 0)}
+    reserves = [{"id": row.id, "title": row.title, "amount_minor": row.data.get("amount_minor", 0)}
                 for row in scoped if row.kind == "allocation"]
     reserved = sum(row["amount_minor"] for row in reserves)
     remaining = balance - committed - reserved
