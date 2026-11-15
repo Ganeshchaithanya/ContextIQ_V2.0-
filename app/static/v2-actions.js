@@ -271,10 +271,10 @@ async function action(name, id) {
   }
   if (name === "purchase-plan-dialog" || name === "purchase-plan-date") {
     const existing = name === "purchase-plan-date" ? S.plans.find((plan) => plan.id === id) : null;
-    const defaultDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString("sv-SE", {timeZone: "Asia/Kolkata"});
     const endpoint = existing ? `/plans/${id}/purchase` : `/watch/${id}/plan`;
     const override = existing?.data.monthly_override_minor;
-    return modal(`<h2>${esc(t(existing ? "Edit purchase plan" : "Plan to buy"))}</h2><p>${esc(t("Tara adjusts savings when the tracked price changes."))}</p><form id="purchase-plan-form" data-endpoint="${esc(endpoint)}" data-method="${existing ? "PUT" : "POST"}">${field("Target date", "target_date", existing?.data.target_date || defaultDate, "date", "required")}${field("Monthly savings override", "monthly_override", override == null ? "" : override / 100, "number", "min=0 max=1000000 step=0.01")}${t("Leave the monthly amount blank for automatic savings.")}${formFooter("Save plan")}</form>`);
+    const fixedDate = existing?.data.date_mode === "automatic" ? "" : existing?.data.target_date || "";
+    return modal(`<h2>${esc(t(existing ? "Edit purchase plan" : "Plan to buy"))}</h2><p>${esc(t("Tara estimates a purchase date from the tracked price and your budget. Leave the date blank to use the estimate."))}</p><form id="purchase-plan-form" data-endpoint="${esc(endpoint)}" data-method="${existing ? "PUT" : "POST"}">${field("Target date", "target_date", fixedDate, "date")}${field("Monthly savings override", "monthly_override", override == null ? "" : override / 100, "number", "min=0 max=1000000 step=0.01")}${esc(t("Leave the monthly amount blank for automatic savings."))}${formFooter("Save plan")}</form>`);
   }
   if (name === "purchase-plan-toggle") {
     const plan = S.plans.find((row) => row.id === id);
@@ -546,7 +546,7 @@ async function submit(form) {
   }
   if (form.id === "purchase-plan-form") {
     const amount = form.elements.monthly_override.value;
-    const plan = await api(form.dataset.endpoint, { target_date: form.elements.target_date.value,
+    const plan = await api(form.dataset.endpoint, { target_date: form.elements.target_date.value || null,
       monthly_override_minor: amount === "" ? null : toMinor(amount) }, form.dataset.method);
     closeModal();
     const path = `budget/goals/${plan.id}`;

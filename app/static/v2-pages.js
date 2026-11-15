@@ -17,7 +17,8 @@ function goalDetails(plan) {
   const controls = linked ? `${button("Change purchase date", "purchase-plan-date", plan.id, "small white")}${button(d.status === "paused" ? "Resume savings" : "Pause savings", "purchase-plan-toggle", plan.id, "small ghost")}${link("View tracked item", `watch/${d.linked_watch_id}`, "small ghost")}` : "";
   return `${kv("Saved", money(d.saved_minor))}${kv(linked ? "Target from tracked price" : "Target", money(d.target_minor))}
     <div class="progress-track"><div style="width:${progress}%"></div></div>
-    ${kv("Monthly contribution", money(d.contribution_minor || 0))}${d.target_date ? kv("Target date", date(d.target_date)) : ""}
+    ${kv("Monthly contribution", money(d.contribution_minor || 0))}${d.target_date ? kv(d.date_mode === "automatic" ? "Estimated purchase date" : "Target date", date(d.target_date)) : ""}
+    ${d.date_mode === "automatic" && d.status === "active" ? `<p class="field-hint">${esc(t(d.target_date ? "The estimate updates with your recorded cash flow and tracked price." : "A purchase date is estimated when funds are available to set aside."))}</p>` : ""}
     ${linked ? `<p class="field-hint">${esc(t(d.status === "paused" ? "Savings paused" : "Tara updates this target when the tracked price changes."))}</p>` : ""}
     <div class="actions">${button("Update savings", "savings-dialog", plan.id, "small white")}${controls}</div>`;
 }

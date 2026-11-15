@@ -184,7 +184,7 @@ def test_purchase_updates_budget_forecast_and_remaining_interests(client):
 
 def test_price_linked_savings_recalculate_and_release_after_purchase(client, monkeypatch):
     from datetime import UTC, date, datetime, timedelta
-    from app import v2_watch
+    from app import finance, v2_watch
     from app.storefront import app as shop_app
     from app.v2 import daily_date
     from app.v2_models import PriceWatch
@@ -196,7 +196,7 @@ def test_price_linked_savings_recalculate_and_release_after_purchase(client, mon
     assert client.post("/api/v2/store-cart/track", json={"token": shared}).status_code == 200
     watch, = client.get("/api/v2/watch").json()
     due = date.fromisoformat(daily_date())
-    plan = client.post(f"/api/v2/watch/{watch['id']}/plan", json={"target_date": (due + timedelta(days=60)).isoformat()}).json()
+    plan = client.post(f"/api/v2/watch/{watch['id']}/plan", json={"target_date": finance.add_months(due, 2).isoformat()}).json()
     goal = lambda: next(row for row in client.get("/api/v2/plans").json() if row["id"] == plan["id"])
     assert goal()["data"]["target_minor"] == 59800 and goal()["data"]["contribution_minor"] == 29900
     assert client.get("/api/v2/dashboard").json()["flexible_minor"] == 20100
@@ -227,6 +227,41 @@ def test_price_linked_savings_recalculate_and_release_after_purchase(client, mon
     budget = client.get("/api/v2/dashboard").json()
     assert budget["finance"]["balance_minor"] == 540200 and budget["allocation"]["savings_minor"] == 190200
     assert not client.get("/api/v2/watch").json()
+
+
+def test_automatic_horizon_can_reach_a_year_and_fixed_date_is_editable(monkeypatch):
+    from datetime import UTC, date, datetime, timedelta
+    from app import finance, v2_watch
+    from app.storefront import app as shop_app
+    from app.v2 import daily_date
+    from app.v2_models import PriceWatch
+
+    with TestClient(app) as buyer, TestClient(shop_app) as shop:
+        session = buyer.post("/api/v2/session", json={"persona": "shopkeeper"}).json()
+        buyer.headers["x-csrf-token"] = session["csrf"]
+        token = shop.post("/handoff", headers={"Origin": "http://testserver"}, json={
+            "items": [{"product_id": "laptop", "quantity": 1}],
+        }).json()["url"].split("?cart=")[1]
+        assert buyer.post("/api/v2/store-cart/track", json={"token": token}).status_code == 200
+        watch, = buyer.get("/api/v2/watch").json()
+        plan_id = buyer.post(f"/api/v2/watch/{watch['id']}/plan", json={}).json()["id"]
+        plan = lambda: next(p["data"] for p in buyer.get("/api/v2/plans").json() if p["id"] == plan_id)
+        today = date.fromisoformat(daily_date())
+        assert plan()["target_date"] == finance.add_months(today, 11).isoformat()
+        assert plan()["contribution_minor"] == 500000
+        assert buyer.get("/api/v2/dashboard").json()["flexible_minor"] == 4600000
+
+        monkeypatch.setattr(v2_watch, "read_market", lambda _: {"key": "laptop", "currency": "INR", "minor": 6000000})
+        with SessionLocal() as db:
+            db.get(PriceWatch, watch["id"]).checked_at = datetime.now(UTC) - timedelta(hours=5)
+            db.commit()
+        assert buyer.post(f"/api/v2/watch/{watch['id']}/refresh").status_code == 200
+        assert plan()["target_date"] == finance.add_months(today, 12).isoformat()
+        assert buyer.get("/api/v2/dashboard").json()["finance"]["balance_minor"] == 6500000
+        assert buyer.put(f"/api/v2/plans/{plan_id}/purchase", json={
+            "target_date": finance.add_months(today, 18).isoformat(),
+        }).status_code == 200
+        assert plan()["date_mode"] == "fixed" and plan()["contribution_minor"] == 333334
 
 
 def test_workspace_allocates_after_bills_and_limits_savings_to_recorded_funds():

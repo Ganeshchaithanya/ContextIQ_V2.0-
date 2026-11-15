@@ -53,7 +53,7 @@ def purchase_date(value):
     today = date.fromisoformat(daily_date())
     if value and value < today:
         fail(422, "Choose today or a future purchase date")
-    return (value or today + timedelta(days=30)).isoformat()
+    return value.isoformat() if value else None
 
 
 def verified_cart(db, body, intent=None):
@@ -235,7 +235,8 @@ def plan_purchase(ident: str, body: PurchasePlanIn, current=Depends(session), db
                               title=watch.title, purpose="business" if scope == "business" else "personal",
                               data={"linked_watch_id": watch.id, "product_id": product_id, "status": "active",
                                     "monthly_override_minor": body.monthly_override_minor,
-                                    "saved_minor": 0, "target_date": purchase_date(body.target_date)})
+                                    "saved_minor": 0, "target_date": purchase_date(body.target_date),
+                                    "date_mode": "fixed" if body.target_date else "automatic"})
         update_purchase_plan(plan, watch)
         db.add(plan)
         db.commit()
@@ -251,8 +252,9 @@ def update_purchase_goal(ident: str, body: PurchasePlanIn, current=Depends(sessi
         if plan.data["status"] == "purchased":
             fail(409, "This purchase plan is complete")
         data = dict(plan.data)
-        if body.target_date:
+        if "target_date" in body.model_fields_set:
             data["target_date"] = purchase_date(body.target_date)
+            data["date_mode"] = "fixed" if body.target_date else "automatic"
         if "monthly_override_minor" in body.model_fields_set:
             data["monthly_override_minor"] = body.monthly_override_minor
         if body.active is not None:

@@ -411,7 +411,10 @@ def dashboard(activity: str = "", hour: int | None = None, days: int = 30, curre
     financial = finance.summary(db, current.buyer_id, purpose, days=min(max(days, 7), 90))
     bills = [row for row in bill_rows(db, current.buyer_id) if purpose == "all" or row["purpose"] == purpose]
     plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == current.buyer_id)))
-    allocation = finance.spending_allocation(financial["balance_minor"], purpose, bills, plans)
+    # The savings estimate always uses a 30-day baseline, independently of the chart range.
+    month = financial if days == 30 else finance.summary(db, current.buyer_id, purpose)
+    allocation = finance.spending_allocation(financial["balance_minor"], purpose, bills, plans,
+                                             monthly_surplus=month["income_minor"] - month["expense_minor"])
     notes = observations(db, current.buyer_id)
     suggestions = daily_suggestions(db, current.buyer_id, purpose, notes, plans)
     return {"profile": prefs, "workspace": purpose, "finance": financial, "bills": bills,
@@ -551,15 +554,18 @@ def owned_invoice(db, current, ident):
 def purchase_budget(db, row):
     prefs = db.get(Personalization, row.buyer_id).data
     scope = "all" if prefs.get("configuration") == "unified" else row.purpose
-    funds = finance.summary(db, row.buyer_id, scope)["balance_minor"]
+    financial = finance.summary(db, row.buyer_id, scope)
+    funds = financial["balance_minor"]
+    surplus = financial["income_minor"] - financial["expense_minor"]
     plans = list(db.scalars(select(PlanningRecord).where(
         PlanningRecord.user_id == row.buyer_id, PlanningRecord.kind.in_(("allocation", "goal", "supplier_invoice")))))
     bills = bill_rows(db, row.buyer_id)
-    current = finance.spending_allocation(funds, scope, bills, plans)
+    current = finance.spending_allocation(funds, scope, bills, plans, monthly_surplus=surplus)
     payable = row.status in ("open", "authorized", "provider_checkout")
     projected_funds = funds - (row.total_minor if payable else 0)
     items = purchased_totals(row.items)
-    projected = finance.spending_allocation(projected_funds, scope, bills, plans, items, row.purpose) if payable else current
+    projected = finance.spending_allocation(projected_funds, scope, bills, plans, items, row.purpose,
+                                            monthly_surplus=surplus - row.total_minor) if payable else current
     planned = next((plan for plan in plans if plan.kind == "goal" and plan.purpose == row.purpose
                     and plan.data.get("status") == "active" and plan.data.get("product_id") in items), None)
     hard_budget = funds - current["committed_minor"] - current["reserved_minor"]
@@ -1074,10 +1080,33 @@ def compare_emi(body: PlanIn, current=Depends(session)):
 @router.get("/plans")
 def plans(current=Depends(session), db=Depends(db_dep)):
     today = datetime.fromisoformat(daily_date()).date()
-    rows = db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == current.buyer_id, PlanningRecord.kind.in_(("goal", "allocation", "emi"))))
-    return [{"id": row.id, "kind": row.kind, "title": row.title, "purpose": row.purpose,
-             "data": row.data | {"contribution_minor": finance.goal_contribution(row.data, today)}
-             if row.kind == "goal" and row.data.get("linked_watch_id") else row.data} for row in rows]
+    uid = current.buyer_id
+    rows = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == uid,
+                PlanningRecord.kind.in_(("goal", "allocation", "emi", "supplier_invoice")))))
+    scopes = {row.purpose for row in rows if row.kind == "goal" and row.data.get("date_mode") == "automatic"}
+    automatic = {}
+    if scopes:
+        if db.get(Personalization, uid).data.get("configuration") == "unified":
+            scopes = {"all"}
+        bills = bill_rows(db, uid)
+        for scope in scopes:
+            amounts = finance.summary(db, uid, scope)
+            calculated = finance.spending_allocation(amounts["balance_minor"], scope, bills, rows,
+                monthly_surplus=amounts["income_minor"] - amounts["expense_minor"])
+            automatic.update({item["id"]: item for item in calculated["savings"]})
+    result = []
+    for row in rows:
+        if row.kind == "supplier_invoice":
+            continue
+        data = row.data
+        if row.kind == "goal" and data.get("linked_watch_id"):
+            if data.get("date_mode") == "automatic":
+                schedule = automatic.get(row.id, {})
+                data = data | {"target_date": schedule.get("estimated_date"), "contribution_minor": schedule.get("amount_minor", 0)}
+            else:
+                data = data | {"contribution_minor": finance.goal_contribution(data, today)}
+        result.append({"id": row.id, "kind": row.kind, "title": row.title, "purpose": row.purpose, "data": data})
+    return result
 
 
 @router.post("/plans")

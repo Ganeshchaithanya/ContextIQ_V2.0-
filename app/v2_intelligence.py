@@ -197,9 +197,11 @@ def explain(state):
         facts = {"amount": money(finance.summary(db, uid, purpose)["balance_minor"])}
         destination, evidence = "#/budget/income", ["authorized_ledger"]
     elif topic == "budget":
-        funds = finance.summary(db, uid, purpose)["balance_minor"]
+        monthly = finance.summary(db, uid, purpose)
+        funds = monthly["balance_minor"]
         plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == uid)))
-        available = finance.spending_allocation(funds, purpose, bills, plans)["flexible_minor"]
+        available = finance.spending_allocation(funds, purpose, bills, plans,
+                                                monthly_surplus=monthly["income_minor"] - monthly["expense_minor"])["flexible_minor"]
         facts = {"amount": money(funds), "bills": money(funds - available), "free": money(available)}
         destination, evidence = "#/budget/allocation", ["authorized_ledger", "recorded_obligations"]
     elif topic == "focus":
