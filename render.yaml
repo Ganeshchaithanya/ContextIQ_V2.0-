@@ -13,10 +13,14 @@ services:
         value: 3.14.6
       - key: HOST
         value: 0.0.0.0
-      - key: PAYPAL_ENV
-        value: mock
       - key: CONTEXTIQ_HOSTED_DEMO
         value: "1"
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_MODEL_SMALL
+        value: openai/gpt-oss-20b
+      - key: GROQ_MODEL_LARGE
+        value: openai/gpt-oss-120b
       - key: SERVER_SECRET
         generateValue: true
       - key: CONTEXTIQ_STORE_URL

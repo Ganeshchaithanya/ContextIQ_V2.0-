@@ -33,6 +33,7 @@ Test Ask Tara with "What deserves my attention first?" The Ask API records
 unrecognized questions to the provider for classification. Account records
 and payment controls stay in ContextIQ. Use fictional demo details in questions.
 
-The hosted demo uses fictional data and mock payments. Render's free service
+The hosted demo uses fictional data and built-in mock payments. Leave PayPal
+environment variables unset. Render's free service
 can take time to wake and its local SQLite data can reset when the instance
 restarts. Price checks run when invoked and while the tracking view is open.
