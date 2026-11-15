@@ -12,7 +12,8 @@ stays in the store browser until the user selects **Track in ContextIQ** or
    production domain. Vercel reads the build settings from `brightmart/vercel.json`.
 2. In Render, create a Blueprint from the same repository on `main`. Set
    `CONTEXTIQ_STORE_URL` to the Vercel production origin, including `https://`.
-   Render generates the signing secret and runs the free web service.
+   Enter your `GROQ_API_KEY` in Render when prompted. Render generates the signing
+   secret and runs the free web service.
 3. Set `RENDER_APP_URL` in the BrightMart project's Production environment to the
    HTTPS origin of the Render service. Deploy from `main`. If you change either
    domain, update the corresponding environment variable on the other platform.

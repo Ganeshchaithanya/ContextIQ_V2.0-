@@ -21,6 +21,8 @@ services:
         value: openai/gpt-oss-20b
       - key: GROQ_MODEL_LARGE
         value: openai/gpt-oss-120b
+      - key: GROQ_API_KEY
+        sync: false
       - key: SERVER_SECRET
         generateValue: true
       - key: CONTEXTIQ_STORE_URL
