@@ -49,3 +49,39 @@ def summary(db, user_id, purpose=None, days=30, currency="INR"):
     return {"currency": currency, "opening_minor": opening, "income_minor": income,
             "expense_minor": expenses, "balance_minor": balance, "chart": chart,
             "categories": categories, "period_start": start.isoformat(), "period_end": today.isoformat()}
+
+
+def spending_allocation(balance, purpose, bills, plans):
+    """Plan against recorded cash and obligations without writing ledger entries."""
+    scoped = [row for row in plans if purpose == "all" or row.purpose == purpose]
+    commitments = [
+        {**bill, "destination": f"#/budget/bills/{bill['id']}"}
+        for bill in bills
+        if bill["status"] == "open" and (purpose == "all" or bill["purpose"] == purpose)
+    ]
+    commitments += [
+        {"title": row.title, "amount_minor": row.data["amount_minor"], "due": row.data.get("due"),
+         "destination": f"#/budget/business/{row.id}"}
+        for row in scoped if row.kind == "supplier_invoice" and row.data.get("status") == "open"
+    ]
+    commitments.sort(key=lambda row: row["due"] or "9999-12-31")
+    committed = sum(row["amount_minor"] for row in commitments)
+    reserves = [{"title": row.title, "amount_minor": row.data.get("amount_minor", 0)}
+                for row in scoped if row.kind == "allocation"]
+    reserved = sum(row["amount_minor"] for row in reserves)
+    remaining = balance - committed - reserved
+    goals = sorted((row for row in scoped if row.kind == "goal"),
+                   key=lambda row: (row.data.get("target_date") or "9999-12-31", row.id))
+    savings = []
+    for row in goals:
+        target = row.data["target_minor"]
+        requested = min(row.data.get("contribution_minor", 0), max(0, target - row.data["saved_minor"]))
+        if requested <= 0:
+            continue
+        contribution = min(requested, max(remaining, 0))
+        savings.append({"title": row.title, "requested_minor": requested, "amount_minor": contribution,
+                        "destination": f"#/budget/goals/{row.id}"})
+        remaining -= contribution
+    return {"commitments": commitments, "reserves": reserves, "savings": savings,
+            "committed_minor": committed, "reserved_minor": reserved,
+            "savings_minor": sum(row["amount_minor"] for row in savings), "flexible_minor": remaining}

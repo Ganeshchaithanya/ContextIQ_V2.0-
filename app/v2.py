@@ -397,14 +397,14 @@ def dashboard(activity: str = "", hour: int | None = None, days: int = 30, curre
     purpose = workspace(prefs, activity, hour)
     financial = finance.summary(db, current.buyer_id, purpose, days=min(max(days, 7), 90))
     bills = [row for row in bill_rows(db, current.buyer_id) if purpose == "all" or row["purpose"] == purpose]
-    committed = sum(row["amount_minor"] for row in bills if row["status"] == "open")
     plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == current.buyer_id)))
-    allocations = sum(row.data.get("amount_minor", 0) for row in plans if row.kind == "allocation" and (purpose == "all" or row.purpose == purpose))
+    allocation = finance.spending_allocation(financial["balance_minor"], purpose, bills, plans)
     notes = observations(db, current.buyer_id)
     suggestions = daily_suggestions(db, current.buyer_id, purpose, notes, plans)
     return {"profile": prefs, "workspace": purpose, "finance": financial, "bills": bills,
-            "committed_minor": committed, "allocated_minor": allocations,
-            "flexible_minor": financial["balance_minor"] - committed - allocations,
+            "committed_minor": allocation["committed_minor"],
+            "allocated_minor": allocation["reserved_minor"] + allocation["savings_minor"],
+            "flexible_minor": allocation["flexible_minor"], "allocation": allocation,
             "observations": notes, "suggestions": suggestions, "task_date": daily_date(),
             "focus": next((note for note in suggestions if not note["completed"]), None),
             "demo": True, "provider": "mock", "as_of": now().isoformat()}
@@ -538,13 +538,18 @@ def owned_invoice(db, current, ident):
 def invoice_view(db, row):
     from .v2_checkout import checkout_info
     funds = finance.summary(db, row.buyer_id, row.purpose)["balance_minor"]
-    bills = sum(b["amount_minor"] for b in bill_rows(db, row.buyer_id) if b["status"] == "open" and b["purpose"] == row.purpose)
-    remaining = funds - bills - (0 if row.status == "paid" else row.total_minor)
+    plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == row.buyer_id)))
+    allocation = finance.spending_allocation(funds, row.purpose, bill_rows(db, row.buyer_id), plans)
+    remaining = allocation["flexible_minor"] - (0 if row.status == "paid" else row.total_minor)
     return {"id": row.id, "version": row.version, "kind": row.kind, "items": row.items, "total_minor": row.total_minor,
             "currency": row.currency, "purpose": row.purpose, "merchant": "BrightMart Electronics", "policy": row.policy,
             "status": row.status, "fingerprint": row.fingerprint, "qr_token": row.qr_token, "expires_at": aware(row.expires_at).isoformat(),
-            "case_id": row.case_id, "checkout": checkout_info(db, row.id, row.case_id), "affordability": {"funds_minor": funds, "bills_minor": bills, "remaining_minor": remaining,
-            "alternative": next((p for p in CATALOG if p["id"] == "headphones"), None) if remaining < 0 and any(i.get("product_id") == "premium" for i in row.items) else None}}
+            "case_id": row.case_id, "checkout": checkout_info(db, row.id, row.case_id),
+            "affordability": {"funds_minor": funds, "bills_minor": allocation["committed_minor"],
+                              "allocated_minor": allocation["reserved_minor"] + allocation["savings_minor"],
+                              "remaining_minor": remaining,
+                              "alternative": next((p for p in CATALOG if p["id"] == "headphones" and p["price_minor"] <= allocation["flexible_minor"]), None)
+                              if remaining < 0 and any(i.get("product_id") == "premium" for i in row.items) else None}}
 
 
 @router.post("/invoices")

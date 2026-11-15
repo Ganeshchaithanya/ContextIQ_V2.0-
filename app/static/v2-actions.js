@@ -100,7 +100,7 @@ function planDialog(kind) {
         ? `${amountField("Financed principal", "principal")}${field("Annual interest rate (%)", "annual_rate", 0, "number", "min=0 max=60 step=0.01 required")}${field("Months", "months", 12, "number", "min=1 max=120 required")}<div id="emi-estimate"></div>${button("Compare total cost", "emi-compare", "", "white")}`
         : amountField("Allocated");
   modal(
-    `<h2>${esc(t("Add plan"))}</h2><form id="plan-form">${field("Title", "title", "", "text", "required maxlength=100")}${purposeField()}<div class="form-grid">${fields}</div><div class="spacer"></div>${formFooter("Save plan")}</form>`,
+    `<h2>${esc(t(kind === "allocation" ? "Add reserve" : "Add plan"))}</h2><form id="plan-form">${field("Title", "title", "", "text", "required maxlength=100")}${purposeField(S.dashboard?.workspace === "business" ? "business" : "personal")}<div class="form-grid">${fields}</div><div class="spacer"></div>${formFooter("Save plan")}</form>`,
   );
 }
 function planPayload(form) {

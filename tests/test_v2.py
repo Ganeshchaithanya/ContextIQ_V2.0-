@@ -140,8 +140,33 @@ def test_seed_reconciliation_and_affordability(client):
     assert financial["balance_minor"] == 600000
     assert financial["opening_minor"] + financial["income_minor"] - financial["expense_minor"] == financial["balance_minor"]
     assert financial["chart"][-1]["balance_minor"] == financial["balance_minor"]
-    assert invoice(client, "premium")["affordability"]["remaining_minor"] == -99900
-    assert invoice(client)["affordability"]["remaining_minor"] == 50100
+    assert data["allocation"]["savings_minor"] == 200000
+    assert data["flexible_minor"] == 50000
+    assert invoice(client, "premium")["affordability"]["remaining_minor"] == -299900
+    assert invoice(client)["affordability"]["remaining_minor"] == -149900
+
+
+def test_workspace_allocates_after_bills_and_limits_savings_to_recorded_funds():
+    with TestClient(app) as trader:
+        session = trader.post("/api/v2/session", json={"persona": "shopkeeper"}).json()
+        trader.headers["x-csrf-token"] = session["csrf"]
+        baseline = trader.get("/api/v2/dashboard").json()
+        assert baseline["workspace"] == "business" and baseline["flexible_minor"] == 5100000
+        assert baseline["allocation"]["committed_minor"] == 1200000
+        assert baseline["allocation"]["savings_minor"] == 200000
+        payable = trader.post("/api/v2/business", json={
+            "kind": "supplier_invoice", "title": "Stock invoice", "amount_minor": 5175000,
+        }).json()
+        new_plan = trader.get("/api/v2/dashboard").json()
+        assert new_plan["allocation"]["committed_minor"] == 6375000
+        assert new_plan["allocation"]["savings"][0]["requested_minor"] == 200000
+        assert new_plan["allocation"]["savings_minor"] == 125000 and new_plan["flexible_minor"] == 0
+        assert trader.post(f"/api/v2/business/{payable['id']}/settle", json={"confirmed": True}).status_code == 200
+        settled = trader.get("/api/v2/dashboard").json()
+        assert settled["allocation"]["committed_minor"] == 1200000
+        assert settled["finance"]["balance_minor"] == 1325000 and settled["flexible_minor"] == 0
+        goal, = [p for p in trader.get("/api/v2/plans").json() if p["kind"] == "goal"]
+        assert goal["data"]["saved_minor"] == 0
 
 
 def test_qr_version_expiry_and_signature(client):

@@ -1,6 +1,16 @@
+async function allocationPage() {
+  S.dashboard = await api("/dashboard");
+  const { allocation, finance, workspace } = S.dashboard;
+  if (!allocation) return `${back("budget")}${head("Spending Allocation")}<section class="panel"><p>${esc(t("Allocation is temporarily unavailable. Reload to retry."))}</p></section>`;
+  const group = (title, rows) => rows.length ? `<section class="panel"><h2>${esc(t(title))}</h2>${rows.map((row) => `<div class="list-row"><div><h3>${row.destination ? `<a href="${esc(row.destination)}">${esc(row.title)} ↗</a>` : esc(row.title)}</h3>${row.due ? `<p>${esc(t("Due date"))} · ${date(row.due)}</p>` : ""}${row.requested_minor > row.amount_minor ? `<p>${esc(t("Planned contribution"))} · ${money(row.requested_minor)}</p>` : ""}</div><strong>${money(row.amount_minor)}</strong></div>`).join("")}</section>` : "";
+  const flexible = allocation.flexible_minor;
+  return `${back("budget")}${head("Spending Allocation", "Updates automatically from your recorded money.", button("Add reserve", "plan-dialog", "allocation", "white"))}<section class="panel"><div class="section-top"><h2>${esc(t(flexible < 0 ? "Budget shortfall" : "Available to spend"))} · ${money(Math.abs(flexible))}</h2><span class="field-hint">${esc(t(workspace === "all" ? "Unified" : workspace === "business" ? "Business" : "Personal"))}</span></div>${kv("Recorded balance", money(finance.balance_minor))}${kv("Bills, supplier invoices and EMIs", money(allocation.committed_minor))}${kv("Manual reserves", money(allocation.reserved_minor))}${kv("Planned savings", money(allocation.savings_minor))}<p class="field-hint">${esc(t("These amounts are set aside in your plan. Your recorded balance changes when you record money in or out."))}</p></section><div class="grid two">${group("Bills and commitments", allocation.commitments)}${group("Goal contributions", allocation.savings)}${group("Manual reserves", allocation.reserves)}</div>`;
+}
+
 async function budgetPage() {
   const section = S.route[1];
   if (section === "business") return businessPage();
+  if (section === "allocation") return allocationPage();
   if (!section)
     return `${head("Budget", "Make room for what matters.")}<div class="grid">${[
       [
@@ -12,7 +22,7 @@ async function budgetPage() {
       ["Bills & Commitments", "Keep upcoming payments in view.", "bills", "▤"],
       [
         "Spending Allocation",
-        "Give your available funds a purpose.",
+        "See what Tara sets aside for bills and goals.",
         "allocation",
         "◫",
       ],
@@ -66,14 +76,13 @@ async function budgetPage() {
     S.forecast = await api("/forecast");
     return `${back("budget")}${head("Cash-flow Forecast")}<section class="panel"><h3>${esc(t("Next 30 days"))}</h3><div class="chart-wrap"><canvas id="forecast-chart" role="img" aria-label="Forecast from recorded commitments"></canvas><span class="chart-tip"></span></div><div class="notice">${esc(t(S.forecast.basis))}</div></section>`;
   }
-  const kind = { goals: "goal", allocation: "allocation", emi: "emi" }[section];
+  const kind = { goals: "goal", emi: "emi" }[section];
   if (!kind) throw new Error("Page not found");
   S.plans = (await api("/plans")).filter(
     (p) => p.kind === kind && (!S.route[2] || p.id === S.route[2]),
   );
   const title = {
     goal: "Future Purchases",
-    allocation: "Spending Allocation",
     emi: "EMI Commitments",
   }[kind];
   return `${back("budget")}${head(title, "", button("Add plan", "plan-dialog", kind, "green"))}<div class="grid two">${S.plans
@@ -82,8 +91,6 @@ async function budgetPage() {
       let content = "";
       if (kind === "goal")
         content = `${kv("Saved", money(d.saved_minor))}${kv("Target", money(d.target_minor))}<div class="progress-track"><div style="width:${Math.min(100, (100 * d.saved_minor) / d.target_minor)}%"></div></div>${kv("Monthly contribution", money(d.contribution_minor || 0))}${d.target_date ? kv("Target date", date(d.target_date)) : ""}${button("Update savings", "savings-dialog", p.id, "white")}`;
-      if (kind === "allocation")
-        content = `${kv("Allocated", money(d.amount_minor))}<p class="field-hint">${esc(t("Allocation reserves planning space; it does not move money."))}</p>`;
       if (kind === "emi")
         content = `${kv("Monthly installment", money(d.installment_minor))}${kv("Total repayment", money(d.total_minor))}${kv("Total interest", money(d.interest_minor))}<div class="table-wrap"><table><thead><tr><th>${esc(t("Date"))}</th><th>${esc(t("Amount"))}</th><th>${esc(t("Status"))}</th></tr></thead><tbody>${d.schedule.map((row) => `<tr><td>${date(row.due)}</td><td>${money(row.amount_minor)}</td><td>${row.paid ? status("paid") : link("Review bill", `budget/bills/${row.bill_id}`, "small ghost")}</td></tr>`).join("")}</tbody></table></div><p class="field-hint">${esc(t(d.schedule_basis))}</p>`;
       return `<section class="panel"><h2>${esc(p.title)}</h2><p class="field-hint">${esc(t(p.purpose === "business" ? "Business" : "Personal"))}</p><div class="spacer"></div>${content}</section>`;
