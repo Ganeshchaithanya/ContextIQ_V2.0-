@@ -36,11 +36,42 @@ function watchCard(row) {
   return `<section class="panel"><h2>${esc(row.title)}</h2><p class="field-hint">${esc(row.merchant)} · ${esc(t("Quantity"))} ${row.quantity}</p>${kv("Last observed price", priceMoney(row.current_minor, row.currency))}${kv("Lowest since tracking began", priceMoney(row.low_minor, row.currency))}<p class="field-hint">${esc(t("Last checked"))} ${esc(new Date(row.checked_at).toLocaleString())}</p>${row.error ? `<div class="notice warn">${esc(row.error)}</div>` : ""}<details style="margin:14px 0"><summary>${esc(t("Price history"))}</summary>${row.history.map((sample) => kv(new Date(sample.at).toLocaleString(), priceMoney(sample.amount_minor, row.currency))).join("")}</details><div class="actions"><a class="btn white small" href="${esc(row.source_url)}" rel="noopener noreferrer" target="_blank">${esc(t("Open product page"))} ↗</a>${button("Check price", "watch-refresh", row.id, "small white")}${button("Stop tracking", "watch-stop", row.id, "small ghost")}</div></section>`;
 }
 
+const paymentPresentation = {
+  upi: ['<img src="/static/upi.svg" alt="" width="48" height="17">', "UPI app or QR"],
+  card: ["💳", "Credit and debit cards"],
+  netbanking: ["🏦", "Pay through your bank"],
+  mock: ["₹", "Simulated payment"],
+};
+
+function usesDemoPayment(row, method) {
+  return method === "mock" || Boolean(row.checkout.simulated_method) || !row.checkout.gateway_available;
+}
+
+function checkoutButtonText(row, method) {
+  return `${t(usesDemoPayment(row, method) ? "Confirm demo payment" : "Continue to payment")} · ${money(row.total_minor)}`;
+}
+
+function setCheckoutMethod(row, method) {
+  const demo = usesDemoPayment(row, method);
+  $("#mock-payment-options").hidden = !demo;
+  $("#checkout-mode").textContent = t(demo
+    ? "Demo checkout · no money will move."
+    : "Secure Razorpay test checkout");
+  $("#continue-payment").textContent = checkoutButtonText(row, method);
+}
+
 function checkoutForm(row) {
-  const existing = row.checkout.existing_method;
-  const choices = Object.entries(row.checkout.methods);
-  const select = `<div class="form-field"><label for="pay-method">${esc(t("Payment method"))}</label><select id="pay-method" name="method">${!existing ? `<option value="mock">${esc(t("Mock payment"))}</option>` : ""}${choices.map(([key, label]) => `<option value="${key}" ${!row.checkout.gateway_available || (existing && key !== existing) ? "disabled" : ""} ${existing === key ? "selected" : ""}>${esc(t(label))} · ${esc(t(row.checkout.gateway_available ? "Razorpay test checkout" : "Not configured"))}</option>`).join("")}</select></div>`;
-  return `<form id="authorize-form">${select}${check("I authorize this exact amount, recipient and invoice.", "authorized")}<div id="mock-payment-options" ${existing ? "hidden" : ""}>${check("Demo response interruption", "simulate_interruption")}</div><div class="actions"><button id="continue-payment" class="btn green" type="submit">${esc(t(existing ? "Continue to payment" : "Pay with mock provider"))} · ${money(row.total_minor)}</button>${existing ? button("Check provider status", "provider-check", row.id, "white") : row.case_id ? button("Check original payment", "reconcile", row.id, "white") : ""}</div></form>`;
+  const { methods, existing_method, simulated_method, gateway_available } = row.checkout;
+  const locked = existing_method || simulated_method;
+  const choices = { ...methods };
+  if (gateway_available || locked === "mock") choices.mock = "Mock payment";
+  const selected = locked || (gateway_available ? "mock" : "upi");
+  const demo = usesDemoPayment(row, selected);
+  const methodsHtml = Object.entries(choices).filter(([key]) => !locked || locked === key).map(([key, label]) => {
+    const [icon, hint] = paymentPresentation[key];
+    return `<label class="payment-method"><input type="radio" name="method" value="${key}" ${key === selected ? "checked" : ""}><span class="payment-icon" aria-hidden="true">${icon}</span><span><strong>${esc(t(label))}</strong><small>${esc(t(hint))}</small></span></label>`;
+  }).join("");
+  return `<form id="authorize-form"><fieldset class="payment-methods"><legend>${esc(t("Payment method"))}</legend>${methodsHtml}</fieldset><p id="checkout-mode" class="field-hint">${esc(t(demo ? "Demo checkout · no money will move." : "Secure Razorpay test checkout"))}</p>${check("I authorize this exact amount, recipient and invoice.", "authorized")}<details id="mock-payment-options" ${demo ? "" : "hidden"}><summary class="field-hint">${esc(t("Demo settings"))}</summary>${check("Demo response interruption", "simulate_interruption")}</details><div class="actions"><button id="continue-payment" class="btn green" type="submit">${esc(checkoutButtonText(row, selected))}</button>${existing_method ? button("Check provider status", "provider-check", row.id, "white") : row.case_id ? button("Check original payment", "reconcile", row.id, "white") : ""}</div></form>`;
 }
 
 let razorpaySource;

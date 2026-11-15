@@ -1,5 +1,5 @@
 const toMinor = (value) => Math.round(Number(value) * 100);
-const purposeField = () =>
+const purposeField = (purpose = "personal") =>
   selectField(
     "Purpose",
     "purpose",
@@ -7,10 +7,66 @@ const purposeField = () =>
       ["personal", "Personal"],
       ["business", "Business"],
     ],
-    "personal",
+    purpose,
   );
 const amountField = (label = "Amount", name = "amount", value = "") =>
   field(label, name, value, "number", "min=0.01 step=0.01 required");
+
+function billDialog() {
+  const purpose = S.dashboard?.workspace ?? S.profile.override ?? S.profile.configuration;
+  const due = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Kolkata" });
+  modal(
+    `<h2>${esc(t("Add bill"))}</h2><form id="bill-form"><div class="bill-import"><label for="bill-source">${esc(t("Paste invoice text or a UPI QR payload"))}</label><textarea id="bill-source" rows="3" maxlength="4000" placeholder="Supplier: Bharat Wholesale&#10;Amount due: ₹2,450.00&#10;Due date: 20/11/2026"></textarea><p id="bill-import-status" class="field-hint" role="status">${esc(t("Tara fills in the details it finds. Review them before saving."))}</p></div>${field("Title", "title", "", "text", "required maxlength=100")}${amountField()}${field("Due date", "due", due, "date", "required")}${purposeField(purpose === "business" ? "business" : "personal")}${check("Repeat every 30 days", "recurring")}${formFooter("Save bill")}</form>`,
+  );
+  $("#bill-form").elements.due.dataset.autofill = due;
+}
+
+function readBillText(text) {
+  const value = text.trim();
+  if (/^upi:\/\/pay\?/i.test(value)) {
+    const params = new URLSearchParams(value.slice(value.indexOf("?") + 1));
+    if (params.get("cu") && params.get("cu") !== "INR") return {};
+    const amount = params.get("am");
+    return {
+      title: params.get("pn") || params.get("pa"),
+      amount: amount && /^\d{1,9}(?:\.\d{1,2})?$/.test(amount) ? Number(amount) : null,
+    };
+  }
+  const title = value.match(/^(?:biller|supplier|merchant|vendor|payee|title)\s*:\s*([^\r\n]+)/im)?.[1];
+  const amount = value.match(/^(?:amount due|total due|balance due|grand total|total|amount)\s*[:=]?\s*(?:₹|INR\s*|Rs\.?\s*)?\s*([\d,]+(?:\.\d{1,2})?)(?:\s|$)/im)?.[1];
+  const rawDue = value.match(/^(?:due date|payment due|due on)\s*[:=]?\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[\/-]\d{1,2}[\/-]\d{4})\b/im)?.[1];
+  let due = rawDue;
+  if (rawDue && !/^\d{4}-/.test(rawDue)) {
+    const [day, month, year] = rawDue.split(/[\/-]/);
+    due = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  const date = due && new Date(`${due}T00:00:00Z`);
+  return {
+    title,
+    amount: amount ? Number(amount.replaceAll(",", "")) : null,
+    due: date && !isNaN(date) && date.toISOString().slice(0, 10) === due ? due : null,
+  };
+}
+
+function autofillBill(source) {
+  const parsed = readBillText(source.value);
+  let found = false;
+  for (const [name, value] of Object.entries(parsed)) {
+    if (!value) continue;
+    found = true;
+    const input = source.form.elements[name];
+    if (input.value && input.value !== input.dataset.autofill) continue;
+    input.value = String(value).trim().slice(0, 100);
+    input.dataset.autofill = input.value;
+  }
+  $("#bill-import-status").textContent = t(found
+    ? "Review the detected details before saving."
+    : "Tara fills in the details it finds. Review them before saving.");
+}
+
+document.addEventListener("input", ({ target }) => {
+  if (target.id === "bill-source") autofillBill(target);
+});
 
 function collectPreferences(form) {
   const data = Object.fromEntries(new FormData(form));
@@ -337,10 +393,7 @@ async function action(name, id) {
     );
     return;
   }
-  if (name === "bill-dialog")
-    return modal(
-      `<h2>${esc(t("Add bill"))}</h2><form id="bill-form">${field("Title", "title", "", "text", "required maxlength=100")}${amountField()}${field("Due date", "due", new Date().toISOString().slice(0, 10), "date", "required")}${purposeField()}${check("Repeat every 30 days", "recurring")}${formFooter("Save bill")}</form>`,
-    );
+  if (name === "bill-dialog") return billDialog();
   if (name === "bill-pay")
     return modal(
       `<h2>${esc(t("Record payment"))}</h2><p>${esc(t("This records a payment you made elsewhere. It does not initiate a bank transfer."))}</p><div class="actions">${button("Confirm payment record", "bill-pay-confirm", id, "green")}${button("Cancel", "close", "", "white")}</div>`,
@@ -489,9 +542,9 @@ async function submit(form) {
       fingerprint: S.invoice.fingerprint,
       version: S.invoice.version,
     };
-    if (data.method && data.method !== "mock")
+    if (data.method && !usesDemoPayment(S.invoice, data.method))
       return openProviderCheckout(S.invoice, payload, data.method);
-    return submitAuthorization(payload);
+    return submitAuthorization({ ...payload, simulated_method: data.method || "mock" });
   }
   if (form.id === "stepup-form")
     return submitAuthorization({ ...S.authorization, step_up_code: data.code });
@@ -639,11 +692,8 @@ document.addEventListener("change", (event) => {
       await guide.refreshHomeFocus(true);
     });
   }
-  if (event.target.id === "pay-method") {
-    const mock = event.target.value === "mock";
-    $("#mock-payment-options").hidden = !mock;
-    $("#continue-payment").textContent =
-      `${t(mock ? "Pay with mock provider" : "Continue to payment")} · ${money(S.invoice.total_minor)}`;
+  if (event.target.name === "method" && event.target.form?.id === "authorize-form") {
+    setCheckoutMethod(S.invoice, event.target.value);
   }
   if (event.target.id === "workspace-select")
     guarded(async () => {

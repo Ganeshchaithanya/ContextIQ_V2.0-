@@ -10,10 +10,11 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 from fastapi import Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from . import briefcase
 from .agents import commerce
-from .models import PolicySnapshot
+from .models import Evidence, PolicySnapshot
 from .config import settings
 from .v2 import AuthorizeIn, WRITE_LOCK, aware, db_dep, fail, finalize_payment, now, owned_invoice, router, session
 from .v2_models import ProviderCheckout
@@ -22,8 +23,6 @@ METHODS = {"upi": "UPI", "card": "Credit or debit card", "netbanking": "Net bank
 
 
 def credentials():
-    if settings.hosted_demo:
-        return None
     key = os.getenv("RAZORPAY_KEY_ID", "")
     secret = os.getenv("RAZORPAY_KEY_SECRET", "")
     return (key, secret) if key.startswith("rzp_test_") and secret else None
@@ -50,10 +49,18 @@ class ProviderProof(BaseModel):
     signature: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
-def checkout_info(db, invoice_id):
+def recorded_demo_method(db, case_id):
+    if not case_id:
+        return None
+    evidence = db.scalar(select(Evidence).where(Evidence.case_id == case_id, Evidence.kind == "invoice_snapshot").limit(1))
+    return evidence.content.get("simulated_method", "mock") if evidence else None
+
+
+def checkout_info(db, invoice_id, case_id):
     existing = db.get(ProviderCheckout, invoice_id)
     return {"methods": METHODS, "gateway_available": credentials() is not None,
-            "existing_method": existing.method if existing else None}
+            "existing_method": existing.method if existing else None,
+            "simulated_method": None if existing else recorded_demo_method(db, case_id)}
 
 
 @router.post("/invoices/{ident}/provider-order")

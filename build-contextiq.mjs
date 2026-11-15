@@ -8,6 +8,7 @@ const html = await readFile(page, "utf8");
 const assets = new Set(
   Array.from(html.matchAll(/(?:href|src)="\/static\/([\w.-]+)"/g), ([, filename]) => filename),
 );
+assets.add("upi.svg");
 
 await mkdir(outputAssets, { recursive: true });
 await copyFile(page, new URL("index.html", output));

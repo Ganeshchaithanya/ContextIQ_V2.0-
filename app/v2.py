@@ -543,7 +543,7 @@ def invoice_view(db, row):
     return {"id": row.id, "version": row.version, "kind": row.kind, "items": row.items, "total_minor": row.total_minor,
             "currency": row.currency, "purpose": row.purpose, "merchant": "BrightMart Electronics", "policy": row.policy,
             "status": row.status, "fingerprint": row.fingerprint, "qr_token": row.qr_token, "expires_at": aware(row.expires_at).isoformat(),
-            "case_id": row.case_id, "checkout": checkout_info(db, row.id), "affordability": {"funds_minor": funds, "bills_minor": bills, "remaining_minor": remaining,
+            "case_id": row.case_id, "checkout": checkout_info(db, row.id, row.case_id), "affordability": {"funds_minor": funds, "bills_minor": bills, "remaining_minor": remaining,
             "alternative": next((p for p in CATALOG if p["id"] == "headphones"), None) if remaining < 0 and any(i.get("product_id") == "premium" for i in row.items) else None}}
 
 
@@ -612,6 +612,7 @@ class AuthorizeIn(BaseModel):
     fingerprint: str
     version: int
     authorized: bool
+    simulated_method: Literal["mock", "upi", "card", "netbanking"] = "mock"
     simulate_interruption: bool = False
     step_up_code: str | None = None
 
@@ -644,12 +645,16 @@ def finalize_payment(db, current, row, result):
 
 @router.post("/invoices/{ident}/authorize")
 def authorize(ident: str, body: AuthorizeIn, current=Depends(session), db=Depends(db_dep)):
+    from .v2_checkout import recorded_demo_method
     with WRITE_LOCK:
         row = owned_invoice(db, current, ident)
         if db.get(ProviderCheckout, row.id):
             fail(409, "Use your existing provider checkout for this invoice")
         if not body.authorized or body.fingerprint != row.fingerprint or body.version != row.version:
             fail(409, "Review and authorize the exact current invoice")
+        previous_method = recorded_demo_method(db, row.case_id)
+        if previous_method and previous_method != body.simulated_method:
+            fail(409, "Continue with the method already selected for this payment")
         if row.status == "paid":
             return {"ok": True, "case_id": row.case_id, "status": "paid", "replayed": True}
         if row.status not in ("open", "authorized") or (not row.case_id and aware(row.expires_at) <= now()):
@@ -663,7 +668,8 @@ def authorize(ident: str, body: AuthorizeIn, current=Depends(session), db=Depend
             row.case_id, row.approval_token = checkout["case_id"], checkout["approval_token"]
             row.status = "authorized"
             briefcase.add_evidence(db, db.get(Case, row.case_id), kind="invoice_snapshot", source="merchant", provenance="claimed",
-                                  summary=f"Invoice {row.id}, version {row.version}, explicitly authorized", content={"items": row.items, "fingerprint": row.fingerprint})
+                                  summary=f"Invoice {row.id}, version {row.version}, explicitly authorized",
+                                  content={"items": row.items, "fingerprint": row.fingerprint, "simulated_method": body.simulated_method})
             db.commit()
         case = db.get(Case, row.case_id)
         mock.approve(case.paypal_order_id)

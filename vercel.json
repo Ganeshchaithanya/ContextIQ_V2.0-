@@ -3,6 +3,13 @@
   "framework": null,
   "buildCommand": "node build-contextiq.mjs",
   "outputDirectory": "contextiq-dist",
+  "redirects": [
+    {
+      "source": "/store",
+      "destination": "https://context-iq-v2-0-sl9v.vercel.app/",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/v2/:path*",
