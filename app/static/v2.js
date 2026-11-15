@@ -6,7 +6,7 @@ const S = {
   route: [],
   dashboard: null,
   invoice: null,
-  persona: "student",
+  persona: "shopkeeper",
   step: 0,
   busy: false,
   stream: null,
@@ -299,9 +299,9 @@ function observationText(note) {
       label: "Review bill",
       destination: note.destination,
     };
-  if (note.kind === "replacement")
+  if (["replacement", "return", "warranty"].includes(note.kind))
     return {
-      title: `${t("Replacement window")} · ${note.data.title}`,
+      title: `${t({ replacement: "Replacement window", return: "Return window", warranty: "Warranty expires" }[note.kind])} · ${note.data.title}`,
       description: `${note.data.days} ${t("days")}`,
       label: "View details",
       destination: note.destination,
@@ -424,7 +424,7 @@ function reminderTiming(task, day) {
   if (task.kind === "payment" && task.data.status === "checking")
     return { label: t("Payment under review"), tone: "urgent" };
   const days =
-    task.kind === "replacement"
+    ["replacement", "return", "warranty"].includes(task.kind)
       ? task.data.days
       : (Date.parse(`${task.data.due?.slice(0, 10)}T00:00:00Z`) -
           Date.parse(`${day}T00:00:00Z`)) /
@@ -544,8 +544,7 @@ async function purchasesPage() {
   const rows = (await api("/invoices")).filter((row) =>
     ["open", "authorized", "provider_checkout"].includes(row.status),
   );
-  const handoff = await sharedCartReview("checkout");
-  return `${back("purchases")}${head("During Payment", "Review or verify an invoice")}${handoff}${rows.length ? `<div class="panel">${rows.map(invoiceRow).join("")}</div>` : handoff ? "" : empty("purchases/before", "Cart Intelligence")}`;
+  return `${back("purchases")}${head("During Payment", "Review or verify an invoice")}${rows.length ? `<div class="panel">${rows.map(invoiceRow).join("")}</div>` : empty("purchases/before", "Cart Intelligence")}`;
 }
 
 function invoiceRow(row) {

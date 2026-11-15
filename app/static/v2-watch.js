@@ -6,30 +6,27 @@ function priceMoney(minor, currency) {
   );
 }
 
-async function sharedCartReview(intent) {
-  const search = location.hash.split("?")[1] || "";
-  const token = new URLSearchParams(search).get("cart");
-  S.sharedCartToken = null;
-  if (!token) return "";
-  try {
-    const cart = await api("/store-cart/review", { token });
-    S.sharedCartToken = token;
-    const next =
-      intent === "checkout"
-        ? button("Create checkout invoice", "checkout-shared-cart", "", "green")
-        : button("Track these items", "watch-shared-cart", "", "green");
-    return `<section class="panel"><h2>${esc(t("Shared by BrightMart"))}</h2><p class="field-hint">${esc(t("This is a snapshot. Your cart stays at BrightMart."))}</p>${cart.items.map((item) => `<div class="list-row"><div><h3>${esc(item.name)}</h3><p>${item.quantity} × ${money(item.unit_minor)}</p></div><strong>${money(item.quantity * item.unit_minor)}</strong></div>`).join("")}${kv("Total", money(cart.total_minor))}<div class="actions" style="margin-top:16px">${next}</div></section>`;
-  } catch (error) {
-    return `<div class="notice warn">${esc(error.message)}</div>`;
-  }
+async function applyStoreHandoff(route, hash, renderId) {
+  const [page, section] = route;
+  const intent = page === "watch" ? "track" :
+    page === "purchases" && section === "during" ? "checkout" : null;
+  const token = new URLSearchParams(hash.split("?")[1]).get("cart");
+  if (!intent || !token) return false;
+  const result = await api(`/store-cart/${intent}`, { token });
+  if (renderId !== S.renderId || hash !== location.hash) return true;
+  const destination = intent === "track" ? "purchases/before" : `invoice/${result.id}`;
+  if (intent === "track") toast(t("Items added to your watchlist"));
+  // Replace the signed handoff URL so refreshing or using Back does not repeat it.
+  history.replaceState(null, "", `#/${destination}`);
+  await render();
+  return true;
 }
 
 async function watchPage() {
   const registrations = await api("/watch");
   const selected = S.route[0] === "watch" ? S.route[1] : null;
-  const handoff = await sharedCartReview("track");
   const rows = registrations.filter((row) => !selected || row.id === selected);
-  return `${back(selected ? "purchases/before" : "purchases")}${head("Cart Intelligence", "Before payment · track items you are interested in", '<a class="btn white" href="/store">Open BrightMart ↗</a>')}${handoff}<section class="panel"><h2>${esc(t("Watch a product"))}</h2><p class="field-hint">${esc(t("Enter a public product page. ContextIQ watches its published price and alerts you when it sets a new low since tracking began."))}</p><form id="watch-product-form" style="margin-top:16px">${field("Product page URL", "product_url", "", "url", 'required maxlength="2000" placeholder="https://store.example/product"')}<button type="submit" class="btn green">${esc(t("Track price"))}</button></form></section>${rows.length ? `<div class="grid two">${rows.map(watchCard).join("")}</div>` : `<section class="panel"><p class="muted">${esc(t(selected ? "This tracked item is no longer available." : "No tracked items yet. Share your BrightMart cart or add a public product link."))}</p></section>`}`;
+  return `${back(selected ? "purchases/before" : "purchases")}${head("Cart Intelligence", "Before payment · track items you are interested in", '<a class="btn white" href="/store">Open BrightMart ↗</a>')}<section class="panel"><h2>${esc(t("Watch a product"))}</h2><p class="field-hint">${esc(t("Enter a public product page. ContextIQ watches its published price and alerts you when it sets a new low since tracking began."))}</p><form id="watch-product-form" style="margin-top:16px">${field("Product page URL", "product_url", "", "url", 'required maxlength="2000" placeholder="https://store.example/product"')}<button type="submit" class="btn green">${esc(t("Track price"))}</button></form></section>${rows.length ? `<div class="grid two">${rows.map(watchCard).join("")}</div>` : `<section class="panel"><p class="muted">${esc(t(selected ? "This tracked item is no longer available." : "No tracked items yet. Share your BrightMart cart or add a public product link."))}</p></section>`}`;
 }
 
 function watchCard(row) {

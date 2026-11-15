@@ -220,6 +220,34 @@ def test_exact_authorization_and_cart(client):
     assert client.put("/api/v2/cart", json={"items": [{"product_id": "cable", "quantity": -1}]}).status_code == 422
 
 
+def test_background_payment_check_cannot_capture_an_approved_order(client, monkeypatch):
+    from app.agents import commerce
+    from app.models import Case
+    from app.paypal.adapter import get_client
+    from app.v2 import refresh_interrupted_payments
+    from app.v2_models import DemoSession
+
+    row = invoice(client, "cable")
+    monkeypatch.setattr(commerce, "complete_payment", lambda *args: {"ok": False, "pending": True})
+    response = client.post(f"/api/v2/invoices/{row['id']}/authorize", json={
+        "fingerprint": row["fingerprint"], "version": row["version"], "authorized": True,
+    })
+    assert response.json()["pending"]
+    with SessionLocal() as db:
+        saved = db.get(InvoiceSnapshot, row["id"])
+        current = db.scalar(select(DemoSession).where(DemoSession.workspace_id == saved.workspace_id))
+        case = db.get(Case, saved.case_id)
+        refresh_interrupted_payments(db, current)
+        assert saved.status == "authorized"
+        assert not db.scalar(select(LedgerEntry).where(LedgerEntry.case_id == case.id))
+        get_client().capture_order(case.paypal_order_id, request_id=f"fixture-{case.id}")
+        refresh_interrupted_payments(db, current)
+        db.commit()
+        assert saved.status == "paid"
+        refresh_interrupted_payments(db, current)
+        assert len(list(db.scalars(select(LedgerEntry).where(LedgerEntry.settlement_key == f"capture:{case.id}")))) == 1
+
+
 def test_separate_store_watchlist_price_alert_and_checkout(client, monkeypatch):
     from datetime import UTC, datetime, timedelta
     from app import v2_watch
@@ -247,6 +275,8 @@ def test_separate_store_watchlist_price_alert_and_checkout(client, monkeypatch):
     assert client.post("/api/v2/store-cart/checkout", json={"token": token}).status_code == 422
     made = client.post("/api/v2/store-cart/checkout", json={"token": payment_token}).json()
     assert made["total_minor"] == 399800 and made["status"] == "open"
+    replay = client.post("/api/v2/store-cart/checkout", json={"token": payment_token}).json()
+    assert replay["id"] == made["id"] and replay["case_id"] is None
     assert len(client.get("/api/v2/watch").json()) == 1
     monkeypatch.setattr(v2_watch, "read_market", lambda _: {"key": "headphones", "currency": "INR", "minor": 169900})
     with SessionLocal() as db:
@@ -369,6 +399,18 @@ def test_planning_bills_and_notices(client):
     notice = client.post("/api/v2/notices", json={"subject": "Invoice review", "message": "Please review the recorded invoice."}).json()
     assert client.get("/api/v2/notices").json()[0]["status"] == "draft"
     assert client.post(f"/api/v2/notices/{notice['id']}/send", json={"confirmed": True}).json()["status"] == "sent_in_app"
+
+
+def test_auto_import_is_idempotent_and_business_bills_recur(client):
+    payload = {"title": "Stock order", "amount_minor": 140000, "purpose": "business",
+               "due": "2026-11-20", "recurring": True, "import_key": "a" * 64}
+    bill = client.post("/api/v2/bills", json=payload).json()
+    assert client.post("/api/v2/bills", json=payload).json() == bill | {"replayed": True}
+    assert client.post(f"/api/v2/bills/{bill['id']}/record-payment", json={"confirmed": True}).status_code == 200
+    rows = [row for row in client.get("/api/v2/bills").json() if row["title"] == "Stock order"]
+    assert len(rows) == 2
+    upcoming, = [row for row in rows if row["status"] == "open"]
+    assert upcoming["purpose"] == "business" and upcoming["due"] == "2026-12-20"
 
 
 @pytest.mark.parametrize("language,questions", [

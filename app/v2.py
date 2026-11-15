@@ -31,6 +31,9 @@ router = APIRouter(prefix="/api/v2")
 WRITE_LOCK = threading.RLock()
 RATE = defaultdict(deque)
 NEW_DEMO_REQUESTS = deque()
+BUSINESS_BILL_KINDS = ("supplier_payment", "recurring_supplier_payment")
+RECURRING_BILL_KINDS = ("subscription", "recurring_supplier_payment")
+PURCHASE_WINDOWS = {"replacement": 7, "return": 30, "warranty": 365}
 POLICY = """BrightMart fictional demo store. Prices include all taxes. Unused products may be returned within 30 days of delivery. Defective products qualify for free replacement within 7 days of delivery. Headphones, computers and accessories carry a 365-day warranty. Opened in-ear earbuds are excluded from change-of-mind returns. A merchant must review and approve each request. Delivery events are simulated."""
 CATALOG = [
     {"id": "premium", "name": "Studio Pro headphones", "price_minor": 349900, "category": "electronics", "description": "Over-ear wireless headphones. 40-hour demo battery specification.", "image": "https://images.unsplash.com/photo-1546435770-a3e426bf472b?w=600&auto=format&fit=crop"},
@@ -253,14 +256,20 @@ def bill_rows(db, user_id):
     bill_purposes = {}
     for plan in db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == user_id, PlanningRecord.kind == "emi")):
         bill_purposes.update({row["bill_id"]: plan.purpose for row in plan.data.get("schedule", [])})
-    rows = db.scalars(select(Obligation).where(Obligation.owner_id == user_id, Obligation.kind.in_(["bill", "subscription", "supplier_payment", "emi"])))
+    rows = db.scalars(select(Obligation).where(Obligation.owner_id == user_id, Obligation.kind.in_(("bill", "subscription", "emi", *BUSINESS_BILL_KINDS))))
     return [{"id": row.id, "title": row.title, "amount_minor": finance.minor(row.amount), "due": aware(row.due_at).date().isoformat(),
-             "status": row.status, "purpose": bill_purposes.get(row.id, "business" if row.kind == "supplier_payment" else "personal"), "kind": row.kind} for row in rows]
+             "status": row.status, "purpose": bill_purposes.get(row.id, "business" if row.kind in BUSINESS_BILL_KINDS else "personal"), "kind": row.kind} for row in rows]
 
 
 def observations(db, user_id):
     active = set()
-    for bill in bill_rows(db, user_id):
+    tracked_bills = [bill | {"destination": f"#/budget/bills/{bill['id']}"} for bill in bill_rows(db, user_id)]
+    supplier_invoices = db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == user_id, PlanningRecord.kind == "supplier_invoice"))
+    tracked_bills.extend({"id": row.id, "title": row.title, "purpose": "business", "status": "open",
+                          "amount_minor": row.data["amount_minor"], "due": row.data["due"],
+                          "destination": f"#/budget/business/{row.id}"}
+                         for row in supplier_invoices if row.data.get("status") == "open" and row.data.get("due"))
+    for bill in tracked_bills:
         if bill["status"] != "open":
             continue
         ident = f"bill:{bill['id']}"
@@ -268,7 +277,7 @@ def observations(db, user_id):
         row = db.get(Observation, ident)
         due_days = (datetime.fromisoformat(bill["due"]).date() - now().date()).days
         if not row:
-            row = Observation(id=ident, user_id=user_id, kind="bill", priority=80, source_id=bill["id"], destination=f"#/budget/bills/{bill['id']}", data=bill)
+            row = Observation(id=ident, user_id=user_id, kind="bill", priority=80, source_id=bill["id"], destination=bill["destination"], data=bill)
             db.add(row)
         row.priority = 95 if due_days <= 1 else max(20, 80 - due_days)
         row.data = bill | {"days": due_days}
@@ -290,18 +299,22 @@ def observations(db, user_id):
             db.add(Observation(id=state_id, user_id=user_id, kind="purchase", priority=70 if item.request else 45,
                                source_id=item.id, destination=f"#/purchases/item/{item.id}",
                                data={"title": item.name, "status": item.request or item.state}))
-        if not item.delivered_at or item.request:
+        if not item.delivered_at or item.request or item.refunded_quantity >= item.quantity:
             continue
-        days_left = 7 - (now().date() - aware(item.delivered_at).date()).days
-        if 0 <= days_left <= 7:
-            ident = f"replacement:{item.id}"
+        age = (now().date() - aware(item.delivered_at).date()).days
+        case = db.get(Case, item.case_id)
+        for kind, duration in PURCHASE_WINDOWS.items():
+            days_left = duration - age
+            if not 0 <= days_left <= (7 if kind == "replacement" else 3):
+                continue
+            ident = f"{kind}:{item.id}"
             active.add(ident)
             row = db.get(Observation, ident)
             if not row:
-                row = Observation(id=ident, user_id=user_id, kind="replacement", priority=60, source_id=item.id,
+                row = Observation(id=ident, user_id=user_id, kind=kind, priority=60 if kind == "replacement" else 55, source_id=item.id,
                                   destination=f"#/purchases/item/{item.id}", data={})
                 db.add(row)
-            row.data = {"title": item.name, "days": days_left}
+            row.data = {"title": item.name, "days": days_left, "purpose": case.purpose}
     watched_ids = select(PriceWatch.id).where(PriceWatch.user_id == user_id, PriceWatch.enabled)
     active.update(db.scalars(select(Observation.id).where(Observation.kind == "price_low", Observation.source_id.in_(watched_ids))))
     db.flush()
@@ -325,7 +338,7 @@ def reminder_priority(note, today):
     kind, data = note["kind"], note["data"]
     if kind == "payment" and data.get("status") == "checking":
         return 100
-    if kind == "replacement":
+    if kind in PURCHASE_WINDOWS:
         return {0: 94, 1: 87, 2: 79}.get(data["days"], note["priority"])
     if kind not in {"bill", "receivable"} or not data.get("due"):
         return note["priority"]
@@ -702,21 +715,36 @@ def authorize(ident: str, body: AuthorizeIn, current=Depends(session), db=Depend
 def reconcile(ident: str, current=Depends(session), db=Depends(db_dep)):
     with WRITE_LOCK:
         row = owned_invoice(db, current, ident)
-        if row.status == "paid":
-            return {"ok": True, "status": "paid", "replayed": True}
-        if not row.case_id:
-            fail(409, "No authorized payment exists")
-        case = db.get(Case, row.case_id)
-        try:
-            state = payments.sync_order_state(db, case)
-        except payments.TRANSIENT:
-            return {"ok": False, "pending": True, "message": "Provider unavailable. Your payment remains under review."}
-        result = {"ok": case.payment_state == "captured", "pending": case.payment_state != "captured", "trace": [f"Provider status {state['order_status']}"]}
-        if result["ok"]:
-            commerce._after_capture(db, case, current.buyer_id)
-        result = finalize_payment(db, current, row, result)
+        result = reconcile_authorized(db, current, row)
         db.commit()
         return result
+
+
+def reconcile_authorized(db, current, row):
+    if row.status == "paid":
+        return {"ok": True, "status": "paid", "replayed": True}
+    if not row.case_id:
+        fail(409, "No authorized payment exists")
+    case = db.get(Case, row.case_id)
+    try:
+        state = payments.sync_order_state(db, case)
+    except payments.TRANSIENT:
+        return {"ok": False, "pending": True, "message": "Provider unavailable. Your payment remains under review."}
+    captured = case.payment_state == "captured"
+    result = {"ok": captured, "pending": not captured, "trace": [f"Provider status {state['order_status']}"]}
+    if captured:
+        commerce._after_capture(db, case, current.buyer_id)
+    return finalize_payment(db, current, row, result)
+
+
+def refresh_interrupted_payments(db, current):
+    if settings.paypal_env != "mock":
+        return
+    invoices = db.scalars(select(InvoiceSnapshot).join(PaymentIncident, PaymentIncident.case_id == InvoiceSnapshot.case_id)
+                          .where(InvoiceSnapshot.workspace_id == current.workspace_id, InvoiceSnapshot.status == "authorized",
+                                 PaymentIncident.status == "checking").order_by(InvoiceSnapshot.created_at))
+    for row in invoices:
+        reconcile_authorized(db, current, row)
 
 
 def purchase_view(db, item):
@@ -782,7 +810,7 @@ def lifecycle(ident: str, body: LifecycleIn, current=Depends(session), db=Depend
             if not item.delivered_at:
                 fail(409, "A delivery record is needed to check this policy window")
             age = (now().date() - aware(item.delivered_at).date()).days
-            limit = {"replacement": 7, "return": 30, "warranty": 365}[body.action]
+            limit = PURCHASE_WINDOWS[body.action]
             if age > limit:
                 fail(409, "The recorded policy window has closed")
             if item.refunded_quantity >= item.quantity:
@@ -848,6 +876,7 @@ class BillIn(BaseModel):
     due: str
     purpose: Literal["personal", "business"] = "personal"
     recurring: bool = False
+    import_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 @router.get("/bills")
@@ -871,11 +900,24 @@ def add_bill(body: BillIn, current=Depends(session), db=Depends(db_dep)):
         due = datetime.fromisoformat(body.due).replace(tzinfo=UTC)
     except ValueError:
         fail(422, "Enter a valid due date")
-    row = Obligation(owner_id=current.buyer_id, kind="supplier_payment" if body.purpose == "business" else "subscription" if body.recurring else "bill",
-                     title=body.title, amount=body.amount_minor / 100, due_at=due)
-    db.add(row)
-    db.flush()
-    return {"id": row.id}
+    with WRITE_LOCK:
+        key = hashlib.sha256(f"bill-import:{current.buyer_id}:{body.import_key}".encode()).hexdigest() if body.import_key else None
+        previous = db.get(PlanningRecord, key) if key else None
+        if previous:
+            return {"id": previous.data["bill_id"], "replayed": True}
+        if body.purpose == "business":
+            kind = "recurring_supplier_payment" if body.recurring else "supplier_payment"
+        else:
+            kind = "subscription" if body.recurring else "bill"
+        row = Obligation(owner_id=current.buyer_id, kind=kind, title=body.title,
+                         amount=body.amount_minor / 100, due_at=due)
+        db.add(row)
+        db.flush()
+        if key:
+            db.add(PlanningRecord(id=key, user_id=current.buyer_id, kind="bill_import",
+                                  title=body.title, data={"bill_id": row.id}))
+        db.commit()
+        return {"id": row.id}
 
 
 class ConfirmIn(BaseModel):
@@ -897,7 +939,7 @@ def record_bill_payment(ident: str, body: ConfirmIn, current=Depends(session), d
                            purpose=purpose, amount=row.amount,
                            currency="INR", settlement_key=f"bill:{ident}", source="user_entered"))
         row.status = "done"
-        if row.kind == "subscription":
+        if row.kind in RECURRING_BILL_KINDS:
             db.add(Obligation(owner_id=current.buyer_id, kind=row.kind, title=row.title, amount=row.amount, due_at=row.due_at + timedelta(days=30)))
         for plan in db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == current.buyer_id, PlanningRecord.kind == "emi")):
             schedule = [entry | {"paid": True} if entry["bill_id"] == ident else entry for entry in plan.data["schedule"]]
@@ -1136,6 +1178,7 @@ def observation_worker(stop):
         with WRITE_LOCK, SessionLocal() as db:
             try:
                 for row in db.scalars(select(DemoSession).where(DemoSession.expires_at > now())):
+                    refresh_interrupted_payments(db, row)
                     observations(db, row.buyer_id)
                 db.commit()
             except Exception:

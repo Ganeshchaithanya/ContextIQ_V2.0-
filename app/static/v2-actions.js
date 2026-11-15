@@ -16,7 +16,7 @@ function billDialog() {
   const purpose = S.dashboard?.workspace ?? S.profile.override ?? S.profile.configuration;
   const due = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Kolkata" });
   modal(
-    `<h2>${esc(t("Add bill"))}</h2><form id="bill-form"><div class="bill-import"><label for="bill-source">${esc(t("Paste invoice text or a UPI QR payload"))}</label><textarea id="bill-source" rows="3" maxlength="4000" placeholder="Supplier: Bharat Wholesale&#10;Amount due: ₹2,450.00&#10;Due date: 20/11/2026"></textarea><p id="bill-import-status" class="field-hint" role="status">${esc(t("Tara fills in the details it finds. Review them before saving."))}</p></div>${field("Title", "title", "", "text", "required maxlength=100")}${amountField()}${field("Due date", "due", due, "date", "required")}${purposeField(purpose === "business" ? "business" : "personal")}${check("Repeat every 30 days", "recurring")}${formFooter("Save bill")}</form>`,
+    `<h2>${esc(t("Add bill"))}</h2><form id="bill-form"><div class="bill-import"><label for="bill-source">${esc(t("Paste invoice text or a UPI QR payload"))}</label><textarea id="bill-source" rows="3" maxlength="4000" placeholder="Supplier: Bharat Wholesale&#10;Amount due: ₹2,450.00&#10;Due date: 20/11/2026"></textarea><p id="bill-import-status" class="field-hint" role="status">${esc(t("Paste a complete bill to add it automatically. Fill in any missing details below."))}</p></div>${field("Title", "title", "", "text", "required maxlength=100")}${amountField()}${field("Due date", "due", due, "date", "required")}${purposeField(purpose === "business" ? "business" : "personal")}${check("Repeat every 30 days", "recurring")}${formFooter("Save bill")}</form>`,
   );
   $("#bill-form").elements.due.dataset.autofill = due;
 }
@@ -61,11 +61,33 @@ function autofillBill(source) {
   }
   $("#bill-import-status").textContent = t(found
     ? "Review the detected details before saving."
-    : "Tara fills in the details it finds. Review them before saving.");
+    : "Paste a complete bill to add it automatically. Fill in any missing details below.");
 }
 
 document.addEventListener("input", ({ target }) => {
   if (target.id === "bill-source") autofillBill(target);
+});
+
+document.addEventListener("paste", (event) => {
+  const source = event.target;
+  if (source.id !== "bill-source" || S.busy || source.value.trim()) return;
+  const text = event.clipboardData?.getData("text").trim();
+  if (!text || text.length > source.maxLength) return;
+  const { title, amount, due } = readBillText(text);
+  const manual = ["title", "amount", "due"].some((name) => {
+    const field = source.form.elements[name];
+    return field.value && field.value !== field.dataset.autofill;
+  });
+  if (manual || !title?.trim() || title.trim().length > 100 || !(amount > 0 && amount <= 1_000_000) || !due) return;
+  event.preventDefault();
+  source.value = text;
+  autofillBill(source);
+  const form = source.form;
+  guarded(async () => {
+    const key = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${form.elements.purpose.value}\n${text}`));
+    form.dataset.importKey = Array.from(new Uint8Array(key), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    await submit(form);
+  }, form.querySelector('button[type="submit"]'));
 });
 
 function collectPreferences(form) {
@@ -235,17 +257,6 @@ async function useCamera() {
 }
 
 async function action(name, id) {
-  if (name === "watch-shared-cart" || name === "checkout-shared-cart") {
-    if (!S.sharedCartToken)
-      throw new Error(t("Share a fresh cart from BrightMart"));
-    if (name === "watch-shared-cart") {
-      await api("/store-cart/track", { token: S.sharedCartToken });
-      toast(t("Items added to your watchlist"));
-      return navigate("purchases/before");
-    }
-    const row = await api("/store-cart/checkout", { token: S.sharedCartToken });
-    return navigate(`invoice/${row.id}`);
-  }
   if (name === "watch-refresh") {
     const row = await api(`/watch/${id}/refresh`, {});
     toast(row.error || t("Showing the latest recorded price"));
@@ -299,6 +310,7 @@ async function action(name, id) {
     const session = await api("/session", { persona: S.persona });
     S.csrf = session.csrf;
     S.profile = await api("/profile");
+    if (!S.profile.onboarded) S.profile = await api("/profile", S.profile, "PUT");
     return render();
   }
   if (name === "copy-qr") {
@@ -602,6 +614,7 @@ async function submit(form) {
       due: data.due,
       purpose: data.purpose,
       recurring: !!data.recurring,
+      import_key: form.dataset.importKey,
     });
   if (form.id === "plan-form") await api("/plans", planPayload(form));
   if (form.id === "savings-form")

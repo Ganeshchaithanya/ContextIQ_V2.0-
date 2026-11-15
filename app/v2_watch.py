@@ -175,12 +175,16 @@ def review_cart(body: SharedCart, current=Depends(session), db=Depends(db_dep)):
 
 @router.post("/store-cart/track")
 def track_cart(body: SharedCart, current=Depends(session), db=Depends(db_dep)):
-    items = cart_items(verified_cart(db, body, "track").items)
     with WRITE_LOCK:
+        items = cart_items(verified_cart(db, body, "track").items)
+        key = hashlib.sha256(f"{current.workspace_id}:{body.token}".encode()).hexdigest()
+        if db.get(PlanningRecord, key):
+            return {"ok": True}
         for row in items:
             url = f"{STORE_URL}/product/{row['product_id']}"
             quote = {"title": row["name"], "key": row["product_id"], "minor": row["unit_minor"], "currency": "INR", "merchant": "BrightMart Electronics"}
             save_watch(db, current.buyer_id, url, quote, row["quantity"])
+        db.add(PlanningRecord(id=key, user_id=current.buyer_id, kind="store_handoff", title="BrightMart watchlist"))
         db.commit()
     return {"ok": True}
 

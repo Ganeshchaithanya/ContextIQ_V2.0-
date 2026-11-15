@@ -228,6 +228,7 @@ async function render() {
   const renderId = (S.renderId = (S.renderId || 0) + 1);
   shell();
   try {
+    if (await applyStoreHandoff(S.route, location.hash, renderId)) return;
     const pages = {
       home,
       purchases: purchasesPage,

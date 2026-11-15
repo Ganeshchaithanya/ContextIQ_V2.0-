@@ -185,15 +185,6 @@ const guide = (() => {
     if (page === "invoice" && S.invoice) return paymentCue(S.invoice);
     if (page === "purchases" && section === "item" && S.item)
       return purchaseCue(S.item);
-    if (page === "watch" || (page === "purchases" && section === "before")) {
-      if (S.sharedCartToken)
-        return cue(
-          "shared-cart",
-          '[data-action="watch-shared-cart"]',
-          "Cart Intelligence",
-          "Track the shared items here so you can get a new-low price alert.",
-        );
-    }
     if (page === "purchases" && section === "after") {
       return cue(
         "purchases-after",
@@ -382,6 +373,17 @@ const guide = (() => {
     if (!document.hidden && current?.alert) draw();
   });
   window.setInterval(refreshHomeFocus, 60_000);
+  window.setInterval(async () => {
+    const invoice = S.invoice;
+    const activeInvoice = () => S.route[0] === "invoice" && S.route[1] === invoice?.id;
+    if (document.hidden || S.busy || !activeInvoice() || invoice?.status !== "authorized") return;
+    try {
+      const updated = await api(`/invoices/${invoice.id}`);
+      if (updated.status === "paid" && activeInvoice() && !S.busy) await render();
+    } catch {
+      // A stale or disconnected session can still retry from the invoice page.
+    }
+  }, 15_000);
 
   return { update, clear, refreshHomeFocus };
 })();
