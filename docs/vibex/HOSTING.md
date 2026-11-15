@@ -1,7 +1,9 @@
 # ContextIQ V2 hackathon hosting
 
-Render runs the ContextIQ app, its API, SQLite, and the BrightMart API under
-`/shop`. Vercel serves the separate BrightMart website. The BrightMart cart
+Render runs the ContextIQ API, SQLite, and the BrightMart API under
+`/shop`. Separate Vercel projects serve ContextIQ and BrightMart. The ContextIQ
+Vercel project uses the repository root and proxies its same-origin API requests
+to the Render service declared in the root `vercel.json`. The BrightMart cart
 stays in the store browser until the user selects **Track in ContextIQ** or
 **Check out with ContextIQ**.
 
@@ -11,10 +13,14 @@ stays in the store browser until the user selects **Track in ContextIQ** or
 2. In Render, create a Blueprint from the same repository on `main`. Set
    `CONTEXTIQ_STORE_URL` to the Vercel production origin, including `https://`.
    Render generates the signing secret and runs the free web service.
-3. Set `RENDER_APP_URL` in the Vercel project's Production environment to the
+3. Set `RENDER_APP_URL` in the BrightMart project's Production environment to the
    HTTPS origin of the Render service. Deploy from `main`. If you change either
    domain, update the corresponding environment variable on the other platform.
-4. Verify `/api/config` on Render, then open each site in a private browser
+4. Import the same repository into a second Vercel project at its root for
+   ContextIQ. Deploy from `main`. Add its production origin to Render as
+   `CONTEXTIQ_APP_URL` so BrightMart handoffs open the Vercel site. If you change
+   the Render service URL, update the two rewrites in the root `vercel.json`.
+5. Verify `/api/config` on Render and ContextIQ's Vercel deployment, then open each site in a private browser
    window. Follow the [judge walkthrough](DEMO.md) through the kirana demo,
    signed cart handoff, and mock checkout. Share the two production URLs.
 

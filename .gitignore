@@ -20,4 +20,5 @@ reports/
 *.mp4
 *.zip
 brightmart/dist/
+contextiq-dist/
 .vercel/

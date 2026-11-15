@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "node build-contextiq.mjs",
+  "outputDirectory": "contextiq-dist",
+  "rewrites": [
+    {
+      "source": "/api/v2/:path*",
+      "destination": "https://contextiq-v2-ganesh.onrender.com/api/v2/:path*"
+    },
+    {
+      "source": "/api/config",
+      "destination": "https://contextiq-v2-ganesh.onrender.com/api/config"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/:path*",
+      "headers": [{ "key": "Cache-Control", "value": "private, no-store" }]
+    }
+  ]
+}

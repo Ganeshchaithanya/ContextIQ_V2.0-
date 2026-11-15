@@ -37,6 +37,7 @@ class Settings:
     database_url: str = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'contextiq.db'}")
     hosted_demo: bool = os.getenv("CONTEXTIQ_HOSTED_DEMO", "0") == "1"
     public_base_url: str = os.getenv("PUBLIC_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "http://localhost:8000"
+    app_url: str = os.getenv("CONTEXTIQ_APP_URL", "").rstrip("/")
     store_url: str = os.getenv("CONTEXTIQ_STORE_URL", "http://127.0.0.1:8001").rstrip("/")
 
     # Optional GenAI reasoning layer (Anthropic Messages API). Without a key,

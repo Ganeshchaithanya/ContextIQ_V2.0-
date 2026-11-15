@@ -1,6 +1,5 @@
 """Standalone BrightMart storefront. The browser cart stays on the shop origin."""
 import json
-import os
 from pathlib import Path
 from typing import Literal
 
@@ -55,6 +54,6 @@ def handoff(body: CartIn, request: Request, intent: Literal["track", "checkout"]
     # Share only product identifiers and quantities. ContextIQ reads current prices independently.
     lines = [{"product_id": row["product_id"], "quantity": row["quantity"]} for row in items]
     token = sign_message({"typ": "brightmart.cart/1", "lines": lines, "intent": intent}, ttl=600)
-    context_url = (os.getenv("CONTEXTIQ_APP_URL") or settings.public_base_url).rstrip("/")
+    context_url = settings.app_url or settings.public_base_url.rstrip("/")
     route = "watch" if intent == "track" else "purchases/during"
     return {"url": f"{context_url}/#/{route}?cart={token}"}

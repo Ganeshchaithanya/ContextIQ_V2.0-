@@ -69,8 +69,9 @@ def session(request: Request, db=Depends(db_dep)):
 
 def same_origin(request):
     origin = request.headers.get("origin")
-    expected = settings.public_base_url if settings.hosted_demo else str(request.base_url)
-    return not origin or origin == expected.rstrip("/")
+    if settings.hosted_demo:
+        return not origin or origin in (settings.public_base_url.rstrip("/"), settings.app_url)
+    return not origin or origin == str(request.base_url).rstrip("/")
 
 
 async def access_control(request, call_next):

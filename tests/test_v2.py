@@ -383,3 +383,18 @@ def test_tara_uses_model_for_unknown_intent_and_keeps_recorded_answers(client, m
     assert calls == [question]
     response = client.post("/api/v2/ask", json={"message": "Something else?"}).json()
     assert response["topic"] == "fallback" and response["routing"] == "rules"
+
+
+def test_hosted_contextiq_accepts_only_configured_frontend_origin(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "hosted_demo", True)
+    monkeypatch.setattr(settings, "public_base_url", "https://contextiq.example.com")
+    monkeypatch.setattr(settings, "app_url", "https://contextiq.vercel.app")
+    allowed = {"Origin": settings.app_url}
+    denied = {"Origin": "https://other.vercel.app"}
+    payload = {"message": "balance"}
+
+    assert client.post("/api/v2/ask", headers=denied, json=payload).status_code == 403
+    assert client.post("/api/v2/ask", headers=allowed | {"X-CSRF-Token": ""}, json=payload).status_code == 403
+    assert client.post("/api/v2/ask", headers=allowed, json=payload).status_code == 200
