@@ -26,8 +26,8 @@ METER = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "latency_ms": 0.0, "
 
 PROVIDER = os.getenv("LLM_PROVIDER", "groq" if os.getenv("GROQ_API_KEY") else "anthropic").lower()
 GROQ_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_SMALL = os.getenv("GROQ_MODEL_SMALL", "llama-3.1-8b-instant")
-GROQ_LARGE = os.getenv("GROQ_MODEL_LARGE", "llama-3.3-70b-versatile")
+GROQ_SMALL = os.getenv("GROQ_MODEL_SMALL", "openai/gpt-oss-20b")
+GROQ_LARGE = os.getenv("GROQ_MODEL_LARGE", "openai/gpt-oss-120b")
 
 
 def available() -> bool:
@@ -41,13 +41,13 @@ def provider_name() -> str:
 
 
 def complete(system: str, user: str, *, large: bool = False, max_tokens: int = 400,
-             want_json: bool = False) -> str | dict | None:
+             want_json: bool = False, timeout: float = 30) -> str | dict | None:
     if not available():
         return None
     t0 = time.time()
     try:
         if PROVIDER == "groq":
-            body = {"model": GROQ_LARGE if large else GROQ_SMALL, "max_tokens": max_tokens, "temperature": 0.1,
+            body = {"model": GROQ_LARGE if large else GROQ_SMALL, "max_completion_tokens": max_tokens, "temperature": 0.1,
                     "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
             if "gpt-oss" in body["model"]:
                 # gpt-oss reasons before answering; at default effort the reasoning alone can use the whole
@@ -57,7 +57,7 @@ def complete(system: str, user: str, *, large: bool = False, max_tokens: int = 4
                 body["response_format"] = {"type": "json_object"}
             r = httpx.post("https://api.groq.com/openai/v1/chat/completions",
                            headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-                           json=body, timeout=30)
+                           json=body, timeout=timeout)
             r.raise_for_status()
             data = r.json()
             choice = data["choices"][0]
@@ -74,7 +74,7 @@ def complete(system: str, user: str, *, large: bool = False, max_tokens: int = 4
                          "content-type": "application/json"},
                 json={"model": settings.llm_model_large if large else settings.llm_model_small,
                       "max_tokens": max_tokens, "system": system, "messages": [{"role": "user", "content": user}]},
-                timeout=30)
+                timeout=timeout)
             r.raise_for_status()
             data = r.json()
             text = "".join(b.get("text", "") for b in data.get("content", []))

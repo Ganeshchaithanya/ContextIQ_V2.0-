@@ -317,14 +317,14 @@ const guide = (() => {
       (current.alert || openTip === current.id);
     panel.toggleAttribute("data-open", open);
     if (!open) {
-      panel.innerHTML = `<button type="button" class="guide-launch" data-guide="open"><span aria-hidden="true">✦</span> ${esc(t("Visual guide"))}</button>`;
+      panel.innerHTML = `<button type="button" class="guide-launch" data-guide="open"><span aria-hidden="true">✦</span> ${esc(t("Tara, your visual guide"))}</button>`;
       return;
     }
 
     highlighted = target.closest(".form-check") || target;
     highlighted.classList.add("guide-target");
-    panel.setAttribute("aria-label", t("Visual guide"));
-    panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">${current.alert ? "◴" : "✦"}</span> ${esc(current.alert ? current.alert.label : t("Visual guide"))}</span><button type="button" class="guide-close" data-guide="dismiss" aria-label="${esc(t("Dismiss this tip"))}">×</button></div><div class="guide-copy" role="status" aria-live="polite"><h2>${esc(current.title)}</h2><p>${esc(current.body)}</p></div><div class="guide-controls"><button type="button" class="btn green small" data-guide="show">${esc(t("Show me"))} <span aria-hidden="true">↗</span></button><button type="button" class="guide-pause" data-guide="pause">${esc(t("Pause tips"))}</button></div>`;
+    panel.setAttribute("aria-label", t("Tara, your visual guide"));
+    panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">${current.alert ? "◴" : "✦"}</span> ${esc(current.alert ? `Tara · ${current.alert.label}` : t("Tara, your visual guide"))}</span><button type="button" class="guide-close" data-guide="dismiss" aria-label="${esc(t("Dismiss this tip"))}">×</button></div><div class="guide-copy" role="status" aria-live="polite"><h2>${esc(current.title)}</h2><p>${esc(current.body)}</p></div><div class="guide-controls"><button type="button" class="btn green small" data-guide="show">${esc(t("Show me"))} <span aria-hidden="true">↗</span></button><button type="button" class="guide-pause" data-guide="pause">${esc(t("Pause tips"))}</button></div>`;
   }
 
   function update() {

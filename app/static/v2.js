@@ -452,7 +452,7 @@ function agentCoverage() {
     ["During Payment", "Checkout and payment verification", "purchases/during"],
     ["After Payment", "Delivery, warranties and returns", "purchases/after"],
   ];
-  return `<details class="agent-coverage"><summary>${esc(t("What the agent covers"))}</summary><ul>${entries.map(([title, description, path]) => `<li><a href="#/${path}">${esc(t(title))} <span aria-hidden="true">↗</span></a><small>${esc(t(description))}</small></li>`).join("")}</ul></details>`;
+  return `<details class="agent-coverage"><summary>${esc(t("What Tara can help with"))}</summary><ul>${entries.map(([title, description, path]) => `<li><a href="#/${path}">${esc(t(title))} <span aria-hidden="true">↗</span></a><small>${esc(t(description))}</small></li>`).join("")}</ul></details>`;
 }
 
 const dailyChecklistViewKey = "contextiq.daily-checklist.compact";

@@ -7,7 +7,7 @@ window.CIQ_LOCALES = {
     "Due today": "आज देय",
     "Due tomorrow": "कल देय",
     "Due in {days} days": "{days} दिनों में देय",
-    "What the agent covers": "एजेंट किसमें मदद करता है",
+    "What Tara can help with": "तारा किसमें मदद कर सकती है",
     "Bills & planning": "बिल और योजना",
     "Bills, budgets and savings goals": "बिल, बजट और बचत के लक्ष्य",
     "Watched prices and new lows": "निगरानी वाली कीमतें और नई न्यूनतम कीमतें",
@@ -25,7 +25,7 @@ window.CIQ_LOCALES = {
     "Review savings goal": "बचत लक्ष्य देखें",
     expected: "मिलने की उम्मीद",
     "left to save": "बचाना बाकी",
-    "Visual guide": "दृश्य मार्गदर्शक",
+    "Tara, your visual guide": "तारा, आपकी मार्गदर्शक",
     "Show me": "दिखाएँ",
     "Pause tips": "सुझाव रोकें",
     "Dismiss this tip": "यह सुझाव बंद करें",
@@ -76,8 +76,8 @@ window.CIQ_LOCALES = {
       "आपके रिकॉर्ड पर आधारित जवाब।",
     "Can I afford this purchase?":
       "क्या मेरे पास इस खरीद के लिए पर्याप्त पैसे हैं?",
-    "Answers use your demo records. No money moves through chat.":
-      "जवाब डेमो रिकॉर्ड पर आधारित हैं। चैट से भुगतान नहीं होता।",
+    "Use demo details only. Tara may send your question to a language model to identify the topic.":
+      "केवल डेमो जानकारी दें। सवाल का विषय पहचानने के लिए तारा उसे भाषा मॉडल को भेज सकती है।",
     "Evidence references": "साक्ष्य के संदर्भ",
     "Checking your records…": "आपके रिकॉर्ड की जाँच हो रही है…",
     "Business records": "व्यापार के रिकॉर्ड",
@@ -155,7 +155,7 @@ window.CIQ_LOCALES = {
     "Create Dynamic QR": "डायनेमिक QR बनाएँ",
     "An amount or a complete bill": "राशि या पूरा बिल",
     "Today's focus": "आज की प्राथमिकता",
-    "Ask ContextIQ": "ContextIQ से पूछें",
+    "Ask Tara": "तारा से पूछें",
     "A clearer next step": "अगला कदम स्पष्ट करें",
     "Ask about your money, bills or purchases.":
       "पैसे, बिल या खरीद के बारे में पूछें।",
@@ -343,7 +343,7 @@ window.CIQ_LOCALES = {
     "Due today": "ಇಂದೇ ಗಡುವು",
     "Due tomorrow": "ನಾಳೆ ಗಡುವು",
     "Due in {days} days": "{days} ದಿನಗಳಲ್ಲಿ ಗಡುವು",
-    "What the agent covers": "ಏಜೆಂಟ್ ಯಾವ ಕೆಲಸಗಳಲ್ಲಿ ಸಹಾಯ ಮಾಡುತ್ತದೆ",
+    "What Tara can help with": "ತಾರಾ ಯಾವುದರಲ್ಲಿ ಸಹಾಯ ಮಾಡಬಹುದು",
     "Bills & planning": "ಬಿಲ್‌ಗಳು ಮತ್ತು ಯೋಜನೆ",
     "Bills, budgets and savings goals": "ಬಿಲ್‌ಗಳು, ಬಜೆಟ್ ಮತ್ತು ಉಳಿತಾಯ ಗುರಿಗಳು",
     "Watched prices and new lows":
@@ -361,7 +361,7 @@ window.CIQ_LOCALES = {
     "Review savings goal": "ಉಳಿತಾಯದ ಗುರಿ ನೋಡಿ",
     expected: "ನಿರೀಕ್ಷಿತ",
     "left to save": "ಉಳಿಸಲು ಬಾಕಿ",
-    "Visual guide": "ದೃಶ್ಯ ಮಾರ್ಗದರ್ಶಿ",
+    "Tara, your visual guide": "ತಾರಾ, ನಿಮ್ಮ ಮಾರ್ಗದರ್ಶಿ",
     "Show me": "ತೋರಿಸಿ",
     "Pause tips": "ಸಲಹೆಗಳನ್ನು ನಿಲ್ಲಿಸಿ",
     "Dismiss this tip": "ಈ ಸಲಹೆಯನ್ನು ಮುಚ್ಚಿ",
@@ -411,8 +411,8 @@ window.CIQ_LOCALES = {
     "A clearer answer, grounded in your records.":
       "ನಿಮ್ಮ ದಾಖಲೆಗಳನ್ನು ಆಧರಿಸಿದ ಉತ್ತರಗಳು.",
     "Can I afford this purchase?": "ಈ ಖರೀದಿಗೆ ನನ್ನ ಬಳಿ ಸಾಕಷ್ಟು ಹಣ ಇದೆಯೇ?",
-    "Answers use your demo records. No money moves through chat.":
-      "ಉತ್ತರಗಳು ಡೆಮೋ ದಾಖಲೆಗಳನ್ನು ಬಳಸುತ್ತವೆ. ಚಾಟ್ ಮೂಲಕ ಪಾವತಿ ನಡೆಯುವುದಿಲ್ಲ.",
+    "Use demo details only. Tara may send your question to a language model to identify the topic.":
+      "ಡೆಮೋ ವಿವರಗಳನ್ನು ಮಾತ್ರ ಬಳಸಿ. ಪ್ರಶ್ನೆಯ ವಿಷಯ ಗುರುತಿಸಲು ತಾರಾ ಅದನ್ನು ಭಾಷಾ ಮಾದರಿಗೆ ಕಳುಹಿಸಬಹುದು.",
     "Evidence references": "ಆಧಾರ ದಾಖಲೆಗಳು",
     "Checking your records…": "ನಿಮ್ಮ ದಾಖಲೆಗಳನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ…",
     "Business records": "ವ್ಯಾಪಾರ ದಾಖಲೆಗಳು",
@@ -491,7 +491,7 @@ window.CIQ_LOCALES = {
     "Create Dynamic QR": "ಡೈನಾಮಿಕ್ QR ರಚಿಸಿ",
     "An amount or a complete bill": "ಮೊತ್ತ ಅಥವಾ ಸಂಪೂರ್ಣ ಬಿಲ್",
     "Today's focus": "ಇಂದಿನ ಆದ್ಯತೆ",
-    "Ask ContextIQ": "ContextIQ ಕೇಳಿ",
+    "Ask Tara": "ತಾರಾಳನ್ನು ಕೇಳಿ",
     "A clearer next step": "ಸ್ಪಷ್ಟ ಮುಂದಿನ ಹೆಜ್ಜೆ",
     "Ask about your money, bills or purchases.":
       "ಹಣ, ಬಿಲ್ ಅಥವಾ ಖರೀದಿ ಬಗ್ಗೆ ಕೇಳಿ.",

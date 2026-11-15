@@ -1108,7 +1108,7 @@ def ask(body: AskIn, current=Depends(session), db=Depends(db_dep)):
     prefs = db.get(Personalization, current.buyer_id).data
     result = supervisor.invoke({"message": body.message, "db": db, "user_id": current.buyer_id,
                                 "workspace_id": current.workspace_id, "language": prefs.get("language", "en")})
-    output = {key: result[key] for key in ("topic", "answer", "destination", "evidence")}
+    output = {key: result[key] for key in ("topic", "answer", "destination", "evidence", "routing")}
     db.add(PlanningRecord(user_id=current.buyer_id, kind="conversation", title=body.message[:100], data={"question": body.message, **output, "at": now().isoformat()}))
     return output
 

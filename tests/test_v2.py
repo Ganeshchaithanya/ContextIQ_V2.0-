@@ -280,6 +280,8 @@ def test_new_kirana_profile_starts_in_business_workspace():
         home = trader.get("/api/v2/dashboard").json()
         assert home["profile"]["business_type"] == "Kirana shop"
         assert home["workspace"] == "business" and home["finance"]["balance_minor"] == 6500000
+        balance = trader.post("/api/v2/ask", json={"message": "Business balance"}).json()
+        assert "₹65,000.00" in balance["answer"]
         assert home["focus"]["data"]["title"] == "Rice, dal and cooking oil restock"
         assert trader.get("/api/v2/business").json()["expected_minor"] == 240000
         restock, receivable, goal = home["suggestions"]
@@ -289,6 +291,8 @@ def test_new_kirana_profile_starts_in_business_workspace():
         assert trader.put("/api/v2/daily-tasks", json={"id": restock["id"], "completed": True}).status_code == 200
         latest = trader.get("/api/v2/dashboard").json()
         assert latest["suggestions"][0]["completed"] and latest["focus"]["id"] == receivable["id"]
+        focus = trader.post("/api/v2/ask", json={"message": "What should I focus on today?"}).json()
+        assert focus["destination"] == receivable["destination"]
         assert next(bill for bill in latest["bills"] if bill["id"] == restock["data"]["id"])["status"] == "open"
         assert trader.put("/api/v2/daily-tasks", json={"id": restock["id"], "completed": False}).status_code == 200
         assert trader.get("/api/v2/dashboard").json()["focus"]["id"] == restock["id"]
@@ -355,3 +359,27 @@ def test_multilingual_record_answers(client, language, questions):
         assert data["answer"] and data["destination"].startswith("#/")
     balance = client.post("/api/v2/ask", json={"message": {"en": "balance", "hi": "पैसे", "kn": "ಹಣ"}[language]}).json()
     assert "₹6,000.00" in balance["answer"]
+
+
+def test_tara_uses_model_for_unknown_intent_and_keeps_recorded_answers(client, monkeypatch):
+    from collections import deque
+    from app import v2_intelligence
+
+    monkeypatch.setattr(v2_intelligence, "MODEL_CALLS", deque())
+    monkeypatch.setattr(v2_intelligence.llm, "available", lambda: True)
+    calls = []
+
+    def classify(system, question, **options):
+        calls.append(question)
+        assert options["timeout"] == 5 and options["want_json"]
+        return {"topic": "balance"} if len(calls) == 1 else {"topic": "execute_transfer"}
+
+    monkeypatch.setattr(v2_intelligence.llm, "complete", classify)
+    question = "How much is in my account?"
+    response = client.post("/api/v2/ask", json={"message": question}).json()
+    assert response["routing"] == "llm" and "₹6,000.00" in response["answer"]
+    assert "authorized_ledger" in response["evidence"]
+    assert client.post("/api/v2/ask", json={"message": "Send money now"}).json()["topic"] == "blocked"
+    assert calls == [question]
+    response = client.post("/api/v2/ask", json={"message": "Something else?"}).json()
+    assert response["topic"] == "fallback" and response["routing"] == "rules"
