@@ -1,5 +1,4 @@
-# Test every push and pull request; on main, deploy to Render only if the tests pass.
-name: CI and deploy
+name: Test
 
 on:
   push:
@@ -17,25 +16,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: "3.14.6"
           cache: pip
-      - run: pip install -r requirements-dev.txt
-      - run: pytest -q
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest tests/test_v2.py -q
         env:
           PAYPAL_ENV: mock
-
-  deploy:
-    needs: test
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Trigger Render deploy hook
+          CONTEXTIQ_LEGACY_TEST_AUTH: "0"
+          CONTEXTIQ_MOCK_STORE: ${{ runner.temp }}/contextiq-v2-mock.json
+      - run: python -m pytest tests/test_flows.py -q
         env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-        run: |
-          if [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
-            echo "RENDER_DEPLOY_HOOK_URL secret is not set; skipping deploy."
-            exit 0
-          fi
-          curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL" > /dev/null
-          echo "Render deploy triggered."
+          PAYPAL_ENV: mock
+          CONTEXTIQ_LEGACY_TEST_AUTH: "1"
+          CONTEXTIQ_MOCK_STORE: ${{ runner.temp }}/contextiq-legacy-mock.json
+      - run: node brightmart/build.mjs
+        env:
+          RENDER_APP_URL: https://contextiq.example.com

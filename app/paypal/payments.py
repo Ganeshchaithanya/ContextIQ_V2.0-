@@ -69,11 +69,16 @@ def capture_safely(db: Session, case: Case, max_attempts: int = 3) -> dict:
             order = client.capture_order(case.paypal_order_id, request_id=request_id)
             trace.append(f"attempt {attempt}: capture returned {order['status']}")
             sync_order_state(db, case)
-            return {"ok": True, "capture_id": case.paypal_capture_id, "trace": trace, "healed": attempt > 1}
+            return {"ok": case.payment_state == "captured", "pending": case.payment_state == "capture_pending",
+                    "capture_id": case.paypal_capture_id, "trace": trace, "healed": attempt > 1}
         except TRANSIENT as exc:
             trace.append(f"attempt {attempt}: {type(exc).__name__} — checking PayPal before any retry")
             bc.add_event(db, case, "payment_uncertain", "system", {"error": str(exc), "attempt": attempt})
-            state = sync_order_state(db, case)
+            try:
+                state = sync_order_state(db, case)
+            except TRANSIENT:
+                bc.set_payment_state(db, case, "verification_pending", "system", {"reason": "provider unreachable"})
+                return {"ok": False, "pending": True, "trace": trace + ["Provider unavailable. Verification pending."]}
             if state["capture"] and state["capture"].get("status") == "COMPLETED":
                 trace.append("PayPal shows the capture already COMPLETED → recorded it, no retry, no second charge")
                 bc.add_event(db, case, "self_heal_resolved", "system",

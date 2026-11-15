@@ -202,6 +202,9 @@ class LedgerEntry(Base):
     amount: Mapped[float] = mapped_column(Float)  # positive = spend, negative = income
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     source: Mapped[str] = mapped_column(String, default="contextiq")
+    currency: Mapped[str] = mapped_column(String, default="USD")
+    amount_minor: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    settlement_key: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
 
 
 class PriceObservation(Base):

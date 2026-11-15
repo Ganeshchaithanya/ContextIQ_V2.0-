@@ -38,8 +38,12 @@ class Base(DeclarativeBase):
 
 def init_db() -> None:
     from . import models  # noqa: F401  (register tables)
+    from . import v2_models  # noqa: F401
+    from . import finance  # noqa: F401
+    from .migrations import migrate
 
     Base.metadata.create_all(engine)
+    migrate(engine)
 
 
 @contextmanager

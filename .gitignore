@@ -19,3 +19,5 @@ reports/
 .playwright-mcp/
 *.mp4
 *.zip
+brightmart/dist/
+.vercel/

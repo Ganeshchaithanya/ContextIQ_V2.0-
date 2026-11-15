@@ -1,7 +1,7 @@
 """FastAPI app: REST API + static web app.
 
-Demo auth: the caller identifies with the `X-User-Id` header. Replace with real sessions
-(and passkeys for step-up) before any non-demo use.
+V2 authenticates with scoped browser sessions. Header-only authentication is available
+only to the explicitly isolated legacy regression-test process.
 """
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -42,16 +42,47 @@ from .security import gateway, sentra
 
 @asynccontextmanager
 async def lifespan(_app):
+    if settings.hosted_demo and (settings.paypal_env != "mock" or len(settings.server_secret) < 32):
+        raise RuntimeError("Hosted demo requires the mock payment provider and a generated SERVER_SECRET")
     init_db()
     from .seed import ensure_seed
 
     ensure_seed()
-    yield
+    import threading
+    from .v2 import observation_worker
+    from .v2_watch import price_watch_worker
+    stop = threading.Event()
+    worker = threading.Thread(target=observation_worker, args=(stop,), daemon=True)
+    worker.start()
+    price_worker = threading.Thread(target=price_watch_worker, args=(stop,), daemon=True)
+    price_worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        worker.join(timeout=2)
+        price_worker.join(timeout=2)
 
 
-app = FastAPI(title="ContextIQ", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="ContextIQ", version="0.2.0", lifespan=lifespan,
+              docs_url=None if settings.hosted_demo else "/docs",
+              redoc_url=None if settings.hosted_demo else "/redoc",
+              openapi_url=None if settings.hosted_demo else "/openapi.json")
+from .v2 import access_control, router as v2_router
+from . import v2_business  # Registers business routes on the same session-scoped router.
+from . import v2_checkout, v2_watch
+app.include_router(v2_router)
+app.middleware("http")(access_control)
+if settings.hosted_demo:
+    from .storefront import app as storefront_app
+    app.mount("/shop", storefront_app)
 STATIC = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
+@app.get("/demo-store/")
+@app.get("/demo-store")
+def connected_store():
+    return RedirectResponse(v2_watch.STORE_URL)
+
 app.mount("/demo-store", StaticFiles(directory=ROOT / "demo_store", html=True), name="demo_store")
 BLOCKED_SESSIONS: set[str] = set()
 METRICS = {"requests": 0, "latency_ms": 0.0}
@@ -117,7 +148,12 @@ class CaptureIn(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 def index():
     # Always revalidate the page so a redeploy's new asset versions (?v=) are picked up.
-    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+    return FileResponse(STATIC / "v2.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/store", response_class=HTMLResponse)
+def v2_store():
+    return RedirectResponse(v2_watch.STORE_URL)
 
 
 @app.get("/{name}.html", include_in_schema=False)

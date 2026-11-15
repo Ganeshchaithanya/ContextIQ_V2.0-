@@ -1,5 +1,33 @@
 # ContextIQ
 
+## ContextIQ V2 local development
+
+The V2 work begins with the
+[Phase 0 audit and implementation plan](docs/vibex/PHASE_0.md),
+[verification record](VERIFICATION.md), [API inventory](docs/vibex/API_BASELINE.md)
+and [VibeX change record](CHANGES_VIBEX.md).
+
+V2 runs with the pinned `requirements-dev.txt` dependencies, SQLite and a mock
+payment provider. Start the local preview from this directory:
+
+```powershell
+$env:PAYPAL_ENV = 'mock'
+$env:CONTEXTIQ_LEGACY_TEST_AUTH = '0'
+.\.venv\Scripts\python.exe run.py
+```
+
+Start the separate BrightMart storefront in another terminal from this directory:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.storefront:app --host 127.0.0.1 --port 8001
+```
+
+Open [ContextIQ](http://localhost:8000/) and [BrightMart](http://127.0.0.1:8001/).
+Follow the [review walkthrough](docs/vibex/DEMO.md) for the connected purchase.
+See [V2 API and data flow](docs/vibex/API_V2.md) for storage, migrations, and implementation limits.
+The [hosting guide](docs/vibex/HOSTING.md) covers the separate Render and Vercel deployments.
+The historical upstream documentation below describes the original project and links to its original demo.
+
 **The AI that keeps working after you pay.** ContextIQ gives every PayPal transaction a memory — an
 evidence-backed *briefcase* — and puts one AI orchestrator on top that explains before you buy, remembers
 what was promised, and fixes what goes wrong. AI proposes; deterministic code decides whether money moves.

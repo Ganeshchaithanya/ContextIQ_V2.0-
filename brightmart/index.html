@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>BrightMart Electronics</title>
+    <link rel="stylesheet" href="/assets/store.css" />
+    <script src="/assets/config.js" defer></script>
+    <script src="/assets/store.js" defer></script>
+    <!-- product metadata -->
+  </head>
+  <body>
+    <header>
+      <a href="/" class="brand">BrightMart<span>.</span></a
+      ><button type="button" id="open-cart">
+        Cart <span id="cart-count">0</span>
+      </button>
+    </header>
+    <main id="shop" aria-busy="true"></main>
+    <dialog id="cart"><section id="cart-body"></section></dialog>
+    <div id="message" role="status" aria-live="polite"></div>
+  </body>
+</html>

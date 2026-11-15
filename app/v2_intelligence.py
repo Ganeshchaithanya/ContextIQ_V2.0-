@@ -1,0 +1,185 @@
+"""Record-backed multilingual supervision with LangGraph routing."""
+import re
+from typing import TypedDict
+
+from langgraph.graph import END, StateGraph
+from sqlalchemy import select
+
+from . import finance
+from .models import Case, OutboundNotice
+from .v2_models import InvoiceSnapshot, PaymentIncident, PlanningRecord, PurchaseItem
+
+TEXT = {
+    "en": {
+        "balance": "Your recorded available funds are {amount}. Open History to review the underlying records.",
+        "budget": "You have {amount}. Recorded commitments total {bills}, leaving {free} before other spending.",
+        "bills": "Your next recorded bill is {title}, {amount}, due {date}.",
+        "empty_bills": "You have no open bills recorded. Add a bill to receive reminders.",
+        "focus": "Your current priority is {title}. Open the linked record to review it.",
+        "afford": "This invoice is {amount}. After recorded commitments, the purchase would leave {free}.",
+        "cart": "Create an invoice from your cart so I can check its exact amount against your funds and commitments.",
+        "payment": "The recorded payment recovery status is {status}. The linked issue contains the verification steps.",
+        "empty_payment": "There are no payment incidents in your workspace.",
+        "purchase": "{title} is recorded as {status}. The purchase page has its delivery, policy windows and complete briefcase.",
+        "empty_purchase": "Your purchases will appear after a confirmed payment. You can explore the fictional BrightMart store.",
+        "emi": "{title} has {count} unpaid installments. Remaining scheduled repayments total {amount}.",
+        "empty_emi": "You have no EMI schedule recorded. Add your financing terms to track repayments.",
+        "goal": "{title} has {saved} recorded toward a target of {amount}.",
+        "notices": "You can prepare a notice, review the exact wording, and approve sending it within this demo workspace.",
+        "safety": "Review unexpected urgency, changed recipients and amounts before approving. Open the original invoice and verify the recorded merchant details.",
+        "greeting": "Hello! I can help with your funds, bills, purchases, EMI, goals and payment records. What would you like to review?",
+        "fallback": "I can answer from your recorded funds, bills, invoices, purchases, EMI, goals and payment issues. Choose a topic or name a purchase.",
+        "blocked": "Review the exact transaction on its payment screen to authorize it. This conversation cannot authorize money movement.",
+    },
+    "hi": {
+        "balance": "आपके रिकॉर्ड के अनुसार उपलब्ध राशि {amount} है। मूल रिकॉर्ड देखने के लिए इतिहास खोलें।",
+        "budget": "आपके पास {amount} हैं। दर्ज देनदारियाँ {bills} हैं। अन्य खर्च से पहले {free} बचते हैं।",
+        "bills": "आपका अगला दर्ज बिल {title} है। राशि {amount}, देय तिथि {date}।",
+        "empty_bills": "कोई बकाया बिल दर्ज नहीं है। रिमाइंडर के लिए बिल जोड़ें।",
+        "focus": "अभी आपकी प्राथमिकता {title} है। विवरण के लिए जुड़ा रिकॉर्ड खोलें।",
+        "afford": "इस चालान की राशि {amount} है। दर्ज देनदारियों और इस खरीद के बाद {free} बचेंगे।",
+        "cart": "अपनी खरीद सूची से चालान बनाएँ ताकि मैं सही राशि की तुलना उपलब्ध पैसे और देनदारियों से कर सकूँ।",
+        "payment": "दर्ज भुगतान रिकवरी की स्थिति {status} है। जुड़े रिकॉर्ड में जाँच के चरण देखें।",
+        "empty_payment": "आपके कार्यक्षेत्र में भुगतान की कोई समस्या दर्ज नहीं है।",
+        "purchase": "{title} की दर्ज स्थिति {status} है। खरीद विवरण में डिलीवरी, नीति की समय-सीमा और पूरा ब्रीफकेस देखें।",
+        "empty_purchase": "पुष्टि किए गए भुगतान के बाद आपकी खरीद यहाँ दिखेगी। आप काल्पनिक BrightMart स्टोर देख सकते हैं।",
+        "emi": "{title} की {count} किस्तें बाकी हैं। निर्धारित शेष भुगतान {amount} है।",
+        "empty_emi": "कोई EMI योजना दर्ज नहीं है। किस्तें देखने के लिए अपने ऋण की शर्तें जोड़ें।",
+        "goal": "{title} के लिए {amount} के लक्ष्य में {saved} की बचत दर्ज है।",
+        "notices": "आप संदेश तैयार कर सकते हैं, उसका पाठ जाँच सकते हैं और इस डेमो में भेजने की अनुमति दे सकते हैं।",
+        "safety": "भुगतान से पहले अचानक जल्दबाज़ी, बदले प्राप्तकर्ता और राशि की जाँच करें। मूल चालान में व्यापारी का विवरण देखें।",
+        "greeting": "नमस्ते! मैं आपके पैसे, बिल, खरीद, EMI, बचत लक्ष्य और भुगतान रिकॉर्ड समझने में मदद कर सकता हूँ।",
+        "fallback": "मैं आपके दर्ज पैसे, बिल, चालान, खरीद, EMI, बचत लक्ष्य और भुगतान समस्याओं के बारे में बता सकता हूँ। कोई विषय चुनें।",
+        "blocked": "भुगतान की अनुमति देने के लिए उसकी स्क्रीन पर सही लेन-देन की समीक्षा करें। बातचीत से पैसे नहीं भेजे जाते।",
+    },
+    "kn": {
+        "balance": "ನಿಮ್ಮ ದಾಖಲೆಯ ಪ್ರಕಾರ ಲಭ್ಯವಿರುವ ಹಣ {amount}. ಮೂಲ ದಾಖಲೆಗಳನ್ನು ನೋಡಲು ಇತಿಹಾಸ ತೆರೆಯಿರಿ.",
+        "budget": "ನಿಮ್ಮ ಬಳಿ {amount} ಇದೆ. ದಾಖಲಾದ ಬಾಧ್ಯತೆಗಳು {bills}. ಇತರ ಖರ್ಚುಗಳ ಮೊದಲು {free} ಉಳಿಯುತ್ತದೆ.",
+        "bills": "ನಿಮ್ಮ ಮುಂದಿನ ಬಿಲ್ {title}. ಮೊತ್ತ {amount}, ಪಾವತಿ ದಿನಾಂಕ {date}.",
+        "empty_bills": "ಬಾಕಿ ಬಿಲ್ ದಾಖಲಾಗಿಲ್ಲ. ನೆನಪಿಗಾಗಿ ಬಿಲ್ ಸೇರಿಸಿ.",
+        "focus": "ಈಗ ನಿಮ್ಮ ಆದ್ಯತೆ {title}. ವಿವರಗಳಿಗೆ ಸಂಬಂಧಿಸಿದ ದಾಖಲೆ ತೆರೆಯಿರಿ.",
+        "afford": "ಈ ಇನ್‌ವಾಯ್ಸ್ ಮೊತ್ತ {amount}. ದಾಖಲಾದ ಬಾಧ್ಯತೆಗಳು ಮತ್ತು ಈ ಖರೀದಿಯ ನಂತರ {free} ಉಳಿಯುತ್ತದೆ.",
+        "cart": "ನಿಮ್ಮ ಕಾರ್ಟ್‌ನಿಂದ ಇನ್‌ವಾಯ್ಸ್ ರಚಿಸಿ. ನಿಖರ ಮೊತ್ತವನ್ನು ಲಭ್ಯವಿರುವ ಹಣ ಮತ್ತು ಬಾಧ್ಯತೆಗಳೊಂದಿಗೆ ಹೋಲಿಸಬಹುದು.",
+        "payment": "ದಾಖಲಾದ ಪಾವತಿ ಮರುಪಡೆಯುವ ಸ್ಥಿತಿ {status}. ಪರಿಶೀಲನೆಯ ಹಂತಗಳನ್ನು ಸಂಬಂಧಿಸಿದ ದಾಖಲೆಯಲ್ಲಿ ನೋಡಿ.",
+        "empty_payment": "ನಿಮ್ಮ ಕಾರ್ಯಕ್ಷೇತ್ರದಲ್ಲಿ ಪಾವತಿ ಸಮಸ್ಯೆಗಳಿಲ್ಲ.",
+        "purchase": "{title} ದಾಖಲಾದ ಸ್ಥಿತಿ {status}. ಖರೀದಿ ಪುಟದಲ್ಲಿ ವಿತರಣೆ, ನೀತಿಯ ಅವಧಿ ಮತ್ತು ಸಂಪೂರ್ಣ ಬ್ರೀಫ್‌ಕೇಸ್ ನೋಡಿ.",
+        "empty_purchase": "ಪಾವತಿ ಖಚಿತವಾದ ನಂತರ ಖರೀದಿಗಳು ಕಾಣಿಸುತ್ತವೆ. ಕಾಲ್ಪನಿಕ BrightMart ಅಂಗಡಿಯನ್ನು ನೋಡಬಹುದು.",
+        "emi": "{title} ಗೆ {count} ಕಂತುಗಳು ಬಾಕಿ ಇವೆ. ಉಳಿದ ನಿಗದಿತ ಪಾವತಿ {amount}.",
+        "empty_emi": "EMI ವೇಳಾಪಟ್ಟಿ ದಾಖಲಾಗಿಲ್ಲ. ಕಂತುಗಳನ್ನು ಗಮನಿಸಲು ಸಾಲದ ಷರತ್ತುಗಳನ್ನು ಸೇರಿಸಿ.",
+        "goal": "{title} ಗಾಗಿ {amount} ಗುರಿಯಲ್ಲಿ {saved} ಉಳಿತಾಯ ದಾಖಲಾಗಿದೆ.",
+        "notices": "ಸಂದೇಶವನ್ನು ಸಿದ್ಧಪಡಿಸಿ, ಪಠ್ಯವನ್ನು ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಈ ಡೆಮೋ ಕಾರ್ಯಕ್ಷೇತ್ರದಲ್ಲಿ ಕಳುಹಿಸಲು ಅನುಮತಿಸಬಹುದು.",
+        "safety": "ಪಾವತಿಗೆ ಮೊದಲು ಅನಿರೀಕ್ಷಿತ ಆತುರ, ಬದಲಾದ ಸ್ವೀಕರಿಸುವವರು ಮತ್ತು ಮೊತ್ತವನ್ನು ಪರಿಶೀಲಿಸಿ. ಮೂಲ ಇನ್‌ವಾಯ್ಸ್‌ನ ವ್ಯಾಪಾರಿ ವಿವರಗಳನ್ನು ನೋಡಿ.",
+        "greeting": "ನಮಸ್ಕಾರ! ನಿಮ್ಮ ಹಣ, ಬಿಲ್‌ಗಳು, ಖರೀದಿಗಳು, EMI, ಉಳಿತಾಯ ಗುರಿಗಳು ಮತ್ತು ಪಾವತಿ ದಾಖಲೆಗಳ ಬಗ್ಗೆ ಸಹಾಯ ಮಾಡಬಹುದು.",
+        "fallback": "ದಾಖಲಾದ ಹಣ, ಬಿಲ್‌ಗಳು, ಇನ್‌ವಾಯ್ಸ್, ಖರೀದಿ, EMI, ಗುರಿಗಳು ಮತ್ತು ಪಾವತಿ ಸಮಸ್ಯೆಗಳ ಬಗ್ಗೆ ಕೇಳಿ.",
+        "blocked": "ಪಾವತಿಗೆ ಅನುಮತಿಸಲು ಅದರ ಪುಟದಲ್ಲಿ ನಿಖರ ವ್ಯವಹಾರವನ್ನು ಪರಿಶೀಲಿಸಿ. ಈ ಸಂಭಾಷಣೆಯು ಹಣ ಕಳುಹಿಸಲು ಅನುಮತಿ ನೀಡುವುದಿಲ್ಲ.",
+    },
+}
+PATTERNS = [
+    ("safety", r"scam|fraud|suspicious|urgent|धोखा|ठगी|ವಂಚನೆ|ಮೋಸ"),
+    ("emi", r"emi|installment|किस्त|किश्त|ಕಂತು"),
+    ("afford", r"afford|buy|headphone|खरीद|खरीदना|खर्च कर|ಖರೀದಿಸ|ಹೆಡ್|ಸಾಧ್ಯ"),
+    ("payment", r"payment|recover|failed|interruption|भुगतान|ಪಾವತಿ"),
+    ("purchase", r"return|refund|replace|warranty|deliver|briefcase|investigat|purchase|वापस|बदल|वारंटी|डिलीवरी|खरीदारी|ಖರೀದಿ|ವಾಪಸ|ಬದಲ|ವಾರಂಟಿ|ವಿತರಣ"),
+    ("bills", r"bill|due|rent|hostel|बिल|देय|किराया|ಬಿಲ್|ಬಾಕಿ|ಬಾಡಿಗೆ"),
+    ("goal", r"goal|saving|laptop|लक्ष्य|बचत|ಗುರಿ|ಉಳಿತಾಯ"),
+    ("notices", r"notice|remind|supplier|customer|संदेश|ग्राहक|ಸಂದೇಶ|ಗ್ರಾಹಕ"),
+    ("focus", r"focus|today|priority|आज|प्राथमिकता|ಇಂದು|ಆದ್ಯತೆ"),
+    ("budget", r"budget|allocation|spend|बजट|खर्च|ಬಜೆಟ್|ವೆಚ್ಚ"),
+    ("balance", r"balance|fund|money|left|पैसे|राशि|शेष|ಹಣ|ಮೊತ್ತ|ಉಳಿದ"),
+    ("greeting", r"^(hi|hello|hey|नमस्ते|नमस्कार|ನಮಸ್ಕಾರ)[!. ]*$"),
+]
+
+
+class AgentState(TypedDict, total=False):
+    message: str
+    db: object
+    user_id: str
+    workspace_id: str
+    language: str
+    topic: str
+    answer: str
+    destination: str
+    evidence: list
+
+
+def route(state):
+    message = state["message"].lower()
+    if re.search(r"^(pay|transfer|send money|approve payment|पैसे भेज|भुगतान करो|ಹಣ ಕಳುಹಿ)", message):
+        return {"topic": "blocked"}
+    return {"topic": next((topic for topic, pattern in PATTERNS if re.search(pattern, message, re.I)), "fallback")}
+
+
+def explain(state):
+    from .v2 import bill_rows, observations
+    db, uid, topic = state["db"], state["user_id"], state["topic"]
+    lang = state["language"]
+    template = TEXT[lang]
+    money = lambda value: f"₹{value / 100:,.2f}"
+    facts, destination, evidence = {}, "#/ask", []
+    financial = finance.summary(db, uid)
+    bills = sorted([b for b in bill_rows(db, uid) if b["status"] == "open"], key=lambda b: b["due"])
+    if topic in ("balance", "budget"):
+        committed = sum(b["amount_minor"] for b in bills)
+        facts = {"amount": money(financial["balance_minor"]), "bills": money(committed), "free": money(financial["balance_minor"] - committed)}
+        destination, evidence = "#/budget/income", ["authorized_ledger", "recorded_obligations"]
+    elif topic in ("bills", "focus"):
+        notes = observations(db, uid)
+        if topic == "focus" and notes:
+            note = notes[0]
+            facts = {"title": note["data"].get("title", {"en": "Payment verification", "hi": "भुगतान की जाँच", "kn": "ಪಾವತಿ ಪರಿಶೀಲನೆ"}[lang])}
+            destination, evidence = note["destination"], [note["id"]]
+        elif bills:
+            bill = bills[0]
+            facts = {"title": bill["title"], "amount": money(bill["amount_minor"]), "date": bill["due"]}
+            topic, destination, evidence = "bills", f"#/budget/bills/{bill['id']}", [bill["id"]]
+        else:
+            topic, destination = "empty_bills", "#/budget/bills"
+    elif topic == "afford":
+        invoice = db.scalar(select(InvoiceSnapshot).where(InvoiceSnapshot.buyer_id == uid, InvoiceSnapshot.status == "open").order_by(InvoiceSnapshot.created_at.desc()))
+        if invoice:
+            funds = finance.summary(db, uid, invoice.purpose)["balance_minor"]
+            committed = sum(b["amount_minor"] for b in bills if b["purpose"] == invoice.purpose)
+            facts = {"amount": money(invoice.total_minor), "free": money(funds - committed - invoice.total_minor)}
+            destination, evidence = f"#/invoice/{invoice.id}", [invoice.id, "authorized_ledger"]
+        else:
+            topic, destination = "cart", "#/store"
+    elif topic == "payment":
+        incident = db.scalar(select(PaymentIncident).where(PaymentIncident.user_id == uid).order_by(PaymentIncident.created_at.desc()))
+        if incident:
+            status = {"en": {"recovered": "recovered", "checking": "being checked"}, "hi": {"recovered": "पुष्टि प्राप्त", "checking": "जाँच जारी"}, "kn": {"recovered": "ಖಚಿತವಾಗಿದೆ", "checking": "ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ"}}[lang]
+            facts = {"status": status.get(incident.status, incident.status)}
+            destination, evidence = f"#/activity/issues/{incident.id}", [incident.case_id, incident.id]
+        else:
+            topic, destination = "empty_payment", "#/purchases/during"
+    elif topic == "purchase":
+        item = db.scalar(select(PurchaseItem).where(PurchaseItem.buyer_id == uid))
+        if item:
+            facts = {"title": item.name, "status": item.state.replace("_", " ")}
+            destination, evidence = f"#/purchases/item/{item.id}", [item.case_id, item.id]
+        else:
+            topic, destination = "empty_purchase", "#/store"
+    elif topic in ("goal", "emi"):
+        plan = db.scalar(select(PlanningRecord).where(PlanningRecord.user_id == uid, PlanningRecord.kind == topic))
+        if plan and topic == "emi":
+            unpaid = [entry for entry in plan.data["schedule"] if not entry["paid"]]
+            facts = {"title": plan.title, "count": len(unpaid), "amount": money(sum(e["amount_minor"] for e in unpaid))}
+        elif plan:
+            facts = {"title": plan.title, "saved": money(plan.data["saved_minor"]), "amount": money(plan.data["target_minor"])}
+        else:
+            topic = "empty_emi" if topic == "emi" else "fallback"
+        destination = "#/budget/emi" if state["topic"] == "emi" else "#/budget/goals"
+        evidence = [plan.id] if plan else []
+    elif topic == "notices":
+        destination = "#/notices"
+    elif topic in ("safety", "blocked"):
+        destination = "#/purchases/during"
+    return {"topic": topic, "answer": template[topic].format(**facts), "destination": destination, "evidence": evidence}
+
+
+graph = StateGraph(AgentState)
+graph.add_node("route", route)
+graph.add_node("explain", explain)
+graph.set_entry_point("route")
+graph.add_edge("route", "explain")
+graph.add_edge("explain", END)
+supervisor = graph.compile()

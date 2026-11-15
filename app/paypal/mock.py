@@ -7,9 +7,11 @@ exactly the dangerous case: the money moved but the client never heard back.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 
@@ -35,13 +37,16 @@ def _id(prefix: str) -> str:
 
 from ..config import DATA_DIR
 
-_STORE = DATA_DIR / "mock_paypal.json"
+_STORE = Path(os.environ.get("CONTEXTIQ_MOCK_STORE", DATA_DIR / "mock_paypal.json"))
 
 
 def _save() -> None:
-    _STORE.write_text(json.dumps({"orders": ORDERS, "captures": CAPTURES, "refunds": REFUNDS, "invoices": INVOICES,
+    _STORE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = _STORE.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"orders": ORDERS, "captures": CAPTURES, "refunds": REFUNDS, "invoices": INVOICES,
                                   "disputes": DISPUTES,
                                   "idem": {f"{k[0]}|{k[1]}": v for k, v in IDEMPOTENT.items()}}))
+    temporary.replace(_STORE)
 
 
 def _load() -> None:
@@ -137,8 +142,11 @@ def _handler(request: httpx.Request) -> httpx.Response:
         if method == "POST":
             _save()
 
-    if path.endswith("/capture") and status == 201 and FAULTS.get("capture_timeout_after_commit", 0) > 0:
-        FAULTS["capture_timeout_after_commit"] -= 1
+    fault_key = f"capture_timeout_after_commit:{path.split('/')[-2]}"
+    if not FAULTS.get(fault_key):
+        fault_key = "capture_timeout_after_commit"
+    if path.endswith("/capture") and status == 201 and FAULTS.get(fault_key, 0) > 0:
+        FAULTS[fault_key] -= 1
         raise httpx.ReadTimeout("simulated: connection dropped after PayPal committed the capture", request=request)
     return _json(status, payload)
 

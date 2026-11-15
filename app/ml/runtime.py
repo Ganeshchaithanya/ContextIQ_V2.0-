@@ -16,9 +16,7 @@ from .synth import FRAUD_FEATURES, series_features, urgency_score
 def _load(name: str):
     path = MODEL_DIR / f"{name}.joblib"
     if not path.exists():
-        from .train import main
-
-        main()
+        raise FileNotFoundError(f"Frozen model artifact missing: {path.name}. Restore it from the source repository.")
     return joblib.load(path)
 
 

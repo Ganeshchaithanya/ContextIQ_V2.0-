@@ -35,7 +35,9 @@ class Settings:
     currency: str = os.getenv("DEFAULT_CURRENCY", "USD")
 
     database_url: str = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'contextiq.db'}")
-    public_base_url: str = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000")
+    hosted_demo: bool = os.getenv("CONTEXTIQ_HOSTED_DEMO", "0") == "1"
+    public_base_url: str = os.getenv("PUBLIC_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "http://localhost:8000"
+    store_url: str = os.getenv("CONTEXTIQ_STORE_URL", "http://127.0.0.1:8001").rstrip("/")
 
     # Optional GenAI reasoning layer (Anthropic Messages API). Without a key,
     # ContextIQ uses deterministic templates for explanations.

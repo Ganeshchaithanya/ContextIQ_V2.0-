@@ -1,0 +1,52 @@
+..........................................                               [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\langsmith\_internal\_beta_decorator.py:92: 13 warnings
+  [workspace]\.venv\Lib\site-packages\langsmith\_internal\_beta_decorator.py:92: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    if asyncio.iscoroutinefunction(func):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================================== PASSES ====================================
+=========================== short test summary info ===========================
+PASSED tests/test_flows.py::test_cart_analysis
+PASSED tests/test_flows.py::test_gateway_denies_without_approval
+PASSED tests/test_flows.py::test_step_up_then_capture
+PASSED tests/test_flows.py::test_self_healing_no_double_charge
+PASSED tests/test_flows.py::test_webhook_dedupe
+PASSED tests/test_flows.py::test_refund_flow
+PASSED tests/test_flows.py::test_buyer_cannot_refund_and_seller_view_is_scoped
+PASSED tests/test_flows.py::test_payment_investigation
+PASSED tests/test_flows.py::test_qr_signed_and_replay_blocked
+PASSED tests/test_flows.py::test_invoice_mismatch
+PASSED tests/test_flows.py::test_chat_intents
+PASSED tests/test_flows.py::test_home_and_metrics
+PASSED tests/test_flows.py::test_account_memory_stops_asking
+PASSED tests/test_flows.py::test_qr_formats
+PASSED tests/test_flows.py::test_two_sided_claims_and_checklist
+PASSED tests/test_flows.py::test_voice_never_moves_money
+PASSED tests/test_flows.py::test_non_defect_cannot_use_replacement_window
+PASSED tests/test_flows.py::test_decision_model_order_invariant
+PASSED tests/test_flows.py::test_a2a_handshake_privacy_tamper_replay_and_sync
+PASSED tests/test_flows.py::test_a2a_revoked_key_rejected
+PASSED tests/test_flows.py::test_temporal_graph_as_of_contradictions_and_scoping
+PASSED tests/test_flows.py::test_market_research_and_diversification
+PASSED tests/test_flows.py::test_plugin_registry_and_mcp_tools
+PASSED tests/test_flows.py::test_passkey_api_rejects_bad_credentials
+PASSED tests/test_flows.py::test_insights_tell_without_asking
+PASSED tests/test_flows.py::test_setup_and_travel_mode
+PASSED tests/test_flows.py::test_chat_is_conversational_and_specific
+PASSED tests/test_flows.py::test_bills_pay_and_recommendations
+PASSED tests/test_flows.py::test_paypal_return_cannot_inject_script
+PASSED tests/test_flows.py::test_reset_needs_mock_mode_or_admin_token
+PASSED tests/test_flows.py::test_non_participant_cannot_act_on_case
+PASSED tests/test_flows.py::test_seller_ships_with_paypal_tracking
+PASSED tests/test_flows.py::test_paypal_dispute_fought_with_briefcase_evidence
+PASSED tests/test_flows.py::test_paypal_dispute_accepted_goes_through_gateway
+PASSED tests/test_flows.py::test_dispute_under_review_gets_supporting_info
+PASSED tests/test_flows.py::test_signed_mandate_on_order_and_enforced_at_capture
+PASSED tests/test_flows.py::test_dispute_draft_cites_the_mandate
+PASSED tests/test_flows.py::test_dispute_readiness_before_any_dispute
+PASSED tests/test_flows.py::test_payment_status_question_is_not_treated_as_cart_advice
+PASSED tests/test_flows.py::test_category_keywords_and_confidence_gate
+PASSED tests/test_flows.py::test_injected_sentence_cannot_erase_real_terms_on_same_line
+PASSED tests/test_flows.py::test_off_topic_questions_get_a_scope_reply_not_a_money_answer
+42 passed, 13 warnings in 19.02s

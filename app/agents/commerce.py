@@ -150,7 +150,8 @@ def complete_payment(db: Session, user_id: str, case_id: str, approval_token: st
 def _after_capture(db: Session, case: Case, user_id: str) -> None:
     if not db.scalar(select(LedgerEntry).where(LedgerEntry.case_id == case.id)):
         db.add(LedgerEntry(user_id=user_id, case_id=case.id, payee=case.merchant, description=case.title,
-                           category=case.category, purpose=case.purpose, amount=case.amount, source="contextiq"))
+                           category=case.category, purpose=case.purpose, amount=case.amount, source="contextiq",
+                           currency=case.currency, settlement_key=f"capture:{case.id}"))
     snap = db.scalar(select(PolicySnapshot).where(PolicySnapshot.case_id == case.id))
     if snap and not db.scalar(select(Obligation).where(Obligation.case_id == case.id)):
         t = snap.extracted

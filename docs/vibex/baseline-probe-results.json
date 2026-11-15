@@ -1,0 +1,28 @@
+{
+  "mode": "mock, isolated temporary database",
+  "profile_without_identity_status": 200,
+  "same_client_buyer_profile": {
+    "status": 200,
+    "name": "Alex Rivera"
+  },
+  "same_client_changed_header_profile": {
+    "status": 200,
+    "name": "BrightMart"
+  },
+  "captured_amount": 12.5,
+  "capture_ok": true,
+  "case_ledger_entries": [
+    {
+      "amount": 12.5,
+      "user_id": "alex"
+    }
+  ],
+  "available_balance_before": 1450.0,
+  "available_balance_after": 1450.0,
+  "month_spent_before": 1370.43,
+  "month_spent_after": 1382.93,
+  "notice_statuses": [
+    "delivered"
+  ],
+  "public_metrics_status": 200
+}

@@ -1,0 +1,1 @@
+window.BRIGHTMART_API = "";
