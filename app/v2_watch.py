@@ -1,6 +1,6 @@
 """Private watchlists, public price reads and explicit BrightMart handoffs."""
 import hashlib
-from datetime import timedelta
+from datetime import date, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -13,7 +13,7 @@ from .config import settings
 from .models import now
 from .price_sources import PriceUnavailable, parse_price, read_public_product
 from .security import crypto
-from .v2 import CATALOG, CartIn, InvoiceIn, WRITE_LOCK, aware, cart_items, create_invoice, db_dep, fail, invoice_view, router, session, workspace
+from .v2 import CATALOG, CartIn, InvoiceIn, WRITE_LOCK, aware, cart_items, create_invoice, daily_date, db_dep, fail, invoice_view, router, session, workspace
 from .v2_models import DemoSession, InvoiceSnapshot, Observation, Personalization, PlanningRecord, PriceSample, PriceWatch
 
 STORE_URL = settings.store_url
@@ -27,6 +27,32 @@ class ProductURL(BaseModel):
 
 class SharedCart(BaseModel):
     token: str = Field(min_length=20, max_length=8000)
+
+
+class PurchasePlanIn(BaseModel):
+    target_date: date | None = None
+    active: bool | None = None
+
+
+def purchase_plan_key(watch_id):
+    return f"purchase-goal:{watch_id}"
+
+
+def linked_purchase_plan(db, watch):
+    return db.get(PlanningRecord, purchase_plan_key(watch.id))
+
+
+def update_purchase_plan(plan, watch):
+    if plan.data.get("status") != "purchased":
+        plan.data = plan.data | {"purchase_quantity": watch.quantity, "price_minor": watch.current_minor,
+                                 "target_minor": watch.quantity * watch.current_minor}
+
+
+def purchase_date(value):
+    today = date.fromisoformat(daily_date())
+    if value and value < today:
+        fail(422, "Choose today or a future purchase date")
+    return (value or today + timedelta(days=30)).isoformat()
 
 
 def verified_cart(db, body, intent=None):
@@ -60,9 +86,11 @@ def read_market(url):
 
 def view(db, row):
     samples = db.scalars(select(PriceSample).where(PriceSample.watch_id == row.id).order_by(PriceSample.checked_at.desc()).limit(12))
+    plan = linked_purchase_plan(db, row)
     return {"id": row.id, "title": row.title, "merchant": row.merchant, "source_url": row.source_url, "quantity": row.quantity,
             "currency": row.currency, "current_minor": row.current_minor, "low_minor": row.low_minor,
             "checked_at": aware(row.checked_at).isoformat(), "error": row.error,
+            "purchase_plan_id": plan.id if plan else None,
             "history": [{"amount_minor": sample.amount_minor, "at": aware(sample.checked_at).isoformat()} for sample in samples]}
 
 
@@ -71,9 +99,22 @@ def save_watch(db, user_id, source_url, quote, quantity=1):
     previous = next((row for row in watches if row.source_url == source_url and row.currency == quote["currency"] and row.source_key == quote["key"]), None)
     if previous:
         previous.quantity = quantity
+        plan = linked_purchase_plan(db, previous)
+        if plan:
+            update_purchase_plan(plan, previous)
         return previous
     if len(watches) >= WATCH_LIMIT:
         fail(409, f"Remove an item before adding more than {WATCH_LIMIT} watches")
+    archived = db.scalars(select(PriceWatch).where(PriceWatch.user_id == user_id, PriceWatch.source_url == source_url,
+                            PriceWatch.currency == quote["currency"], PriceWatch.source_key == quote["key"],
+                            ~PriceWatch.enabled).order_by(PriceWatch.checked_at.desc()))
+    for watch in archived:
+        plan = linked_purchase_plan(db, watch)
+        if plan and plan.data.get("status") == "paused":
+            watch.enabled, watch.quantity = True, quantity
+            apply_quote(db, watch, quote)
+            update_purchase_plan(plan, watch)
+            return watch
     watch = PriceWatch(user_id=user_id, source_url=source_url, title=quote["title"], merchant=quote["merchant"],
                        currency=quote["currency"], source_key=quote["key"], quantity=quantity,
                        current_minor=quote["minor"], low_minor=quote["minor"])
@@ -93,6 +134,9 @@ def apply_quote(db, watch, quote):
     if price != watch.current_minor:
         db.add(PriceSample(watch_id=watch.id, amount_minor=price))
         watch.current_minor = price
+        plan = linked_purchase_plan(db, watch)
+        if plan:
+            update_purchase_plan(plan, watch)
     if price < prior:
         watch.low_minor = price
         db.add(Observation(id=f"price:{watch.id}:{price}", user_id=watch.user_id, kind="price_low", priority=72,
@@ -160,11 +204,61 @@ def manual_price_check(ident: str, current=Depends(session)):
 
 @router.delete("/watch/{ident}")
 def unwatch(ident: str, current=Depends(session), db=Depends(db_dep)):
-    row = db.get(PriceWatch, ident)
-    if not row or row.user_id != current.buyer_id:
-        fail(404, "Tracked item not found")
-    row.enabled = False
-    return {"ok": True}
+    with WRITE_LOCK:
+        row = db.get(PriceWatch, ident)
+        if not row or row.user_id != current.buyer_id:
+            fail(404, "Tracked item not found")
+        row.enabled = False
+        plan = linked_purchase_plan(db, row)
+        if plan and plan.data.get("status") == "active":
+            plan.data = plan.data | {"status": "paused"}
+        db.commit()
+        return {"ok": True}
+
+
+@router.post("/watch/{ident}/plan")
+def plan_purchase(ident: str, body: PurchasePlanIn, current=Depends(session), db=Depends(db_dep)):
+    with WRITE_LOCK:
+        watch = db.get(PriceWatch, ident)
+        if not watch or watch.user_id != current.buyer_id or not watch.enabled:
+            fail(404, "Tracked item not found")
+        if watch.currency != "INR":
+            fail(422, "Purchase savings plans currently use INR prices")
+        plan = linked_purchase_plan(db, watch)
+        if plan:
+            return {"id": plan.id}
+        scope = workspace(db.get(Personalization, current.buyer_id).data)
+        sku = watch.source_url.removeprefix(f"{STORE_URL}/product/")
+        product_id = sku if any(product["id"] == sku for product in CATALOG) else None
+        plan = PlanningRecord(id=purchase_plan_key(watch.id), user_id=current.buyer_id, kind="goal",
+                              title=watch.title, purpose="business" if scope == "business" else "personal",
+                              data={"linked_watch_id": watch.id, "product_id": product_id, "status": "active",
+                                    "saved_minor": 0, "target_date": purchase_date(body.target_date)})
+        update_purchase_plan(plan, watch)
+        db.add(plan)
+        db.commit()
+        return {"id": plan.id}
+
+
+@router.put("/plans/{ident}/purchase")
+def update_purchase_goal(ident: str, body: PurchasePlanIn, current=Depends(session), db=Depends(db_dep)):
+    with WRITE_LOCK:
+        plan = db.get(PlanningRecord, ident)
+        if not plan or plan.user_id != current.buyer_id or not plan.data.get("linked_watch_id"):
+            fail(404, "Purchase savings plan not found")
+        if plan.data["status"] == "purchased":
+            fail(409, "This purchase plan is complete")
+        data = dict(plan.data)
+        if body.target_date:
+            data["target_date"] = purchase_date(body.target_date)
+        if body.active is not None:
+            watch = db.get(PriceWatch, data["linked_watch_id"])
+            if body.active and (not watch or not watch.enabled):
+                fail(409, "Track this item again to resume automated savings")
+            data["status"] = "active" if body.active else "paused"
+        plan.data = data
+        db.commit()
+        return {"id": plan.id}
 
 
 @router.post("/store-cart/review")

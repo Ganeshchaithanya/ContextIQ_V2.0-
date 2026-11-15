@@ -379,7 +379,23 @@ const guide = (() => {
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && current?.alert) draw();
   });
-  window.setInterval(refreshHomeFocus, 60_000);
+  window.setInterval(async () => {
+    await refreshHomeFocus();
+    const [page, section, id] = S.route;
+    if (document.hidden || S.busy || $("#dialog").open || page !== "budget") return;
+    try {
+      if (section === "allocation") {
+        const data = await api("/dashboard");
+        if (JSON.stringify(data.allocation) !== JSON.stringify(S.dashboard?.allocation)) queueWorkspaceRefresh();
+      }
+      if (section === "goals") {
+        const plans = (await api("/plans")).filter((plan) => plan.kind === "goal" && (!id || plan.id === id));
+        if (JSON.stringify(plans) !== JSON.stringify(S.plans)) queueWorkspaceRefresh();
+      }
+    } catch {
+      // The plan remains visible while its data source is temporarily unavailable.
+    }
+  }, 60_000);
   window.setInterval(async () => {
     const invoice = S.invoice;
     const activeInvoice = () => S.route[0] === "invoice" && S.route[1] === invoice?.id;

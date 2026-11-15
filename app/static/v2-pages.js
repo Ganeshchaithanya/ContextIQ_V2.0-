@@ -7,6 +7,21 @@ async function allocationPage() {
   return `${back("budget")}${head("Spending Allocation", "Updates automatically from your recorded money.", button("Add reserve", "plan-dialog", "allocation", "white"))}<section class="panel"><div class="section-top"><h2>${esc(t(flexible < 0 ? "Budget shortfall" : "Available to spend"))} · ${money(Math.abs(flexible))}</h2><span class="field-hint">${esc(t(workspace === "all" ? "Unified" : workspace === "business" ? "Business" : "Personal"))}</span></div>${kv("Recorded balance", money(finance.balance_minor))}${kv("Bills, supplier invoices and EMIs", money(allocation.committed_minor))}${kv("Manual reserves", money(allocation.reserved_minor))}${kv("Planned savings", money(allocation.savings_minor))}<p class="field-hint">${esc(t("These amounts are set aside in your plan. Your recorded balance changes when you record money in or out."))}</p></section><div class="grid two">${group("Bills and commitments", allocation.commitments)}${group("Goal contributions", allocation.savings)}${group("Manual reserves", allocation.reserves)}</div>`;
 }
 
+function goalDetails(plan) {
+  const d = plan.data;
+  const linked = Boolean(d.linked_watch_id);
+  if (linked && d.status === "purchased") {
+    return `<div class="notice">${esc(t("Purchased. The budget released this savings reserve."))}</div>`;
+  }
+  const progress = d.target_minor > 0 ? Math.min(100, 100 * d.saved_minor / d.target_minor) : 100;
+  const controls = linked ? `${button("Change purchase date", "purchase-plan-date", plan.id, "small white")}${button(d.status === "paused" ? "Resume savings" : "Pause savings", "purchase-plan-toggle", plan.id, "small ghost")}${link("View tracked item", `watch/${d.linked_watch_id}`, "small ghost")}` : "";
+  return `${kv("Saved", money(d.saved_minor))}${kv(linked ? "Target from tracked price" : "Target", money(d.target_minor))}
+    <div class="progress-track"><div style="width:${progress}%"></div></div>
+    ${kv("Monthly contribution", money(d.contribution_minor || 0))}${d.target_date ? kv("Target date", date(d.target_date)) : ""}
+    ${linked ? `<p class="field-hint">${esc(t(d.status === "paused" ? "Savings paused" : "Tara updates this target when the tracked price changes."))}</p>` : ""}
+    <div class="actions">${button("Update savings", "savings-dialog", plan.id, "small white")}${controls}</div>`;
+}
+
 async function budgetPage() {
   const section = S.route[1];
   if (section === "business") return businessPage();
@@ -90,7 +105,7 @@ async function budgetPage() {
       const d = p.data;
       let content = "";
       if (kind === "goal")
-        content = `${kv("Saved", money(d.saved_minor))}${kv("Target", money(d.target_minor))}<div class="progress-track"><div style="width:${Math.min(100, (100 * d.saved_minor) / d.target_minor)}%"></div></div>${kv("Monthly contribution", money(d.contribution_minor || 0))}${d.target_date ? kv("Target date", date(d.target_date)) : ""}${button("Update savings", "savings-dialog", p.id, "white")}`;
+        content = goalDetails(p);
       if (kind === "emi")
         content = `${kv("Monthly installment", money(d.installment_minor))}${kv("Total repayment", money(d.total_minor))}${kv("Total interest", money(d.interest_minor))}<div class="table-wrap"><table><thead><tr><th>${esc(t("Date"))}</th><th>${esc(t("Amount"))}</th><th>${esc(t("Status"))}</th></tr></thead><tbody>${d.schedule.map((row) => `<tr><td>${date(row.due)}</td><td>${money(row.amount_minor)}</td><td>${row.paid ? status("paid") : link("Review bill", `budget/bills/${row.bill_id}`, "small ghost")}</td></tr>`).join("")}</tbody></table></div><p class="field-hint">${esc(t(d.schedule_basis))}</p>`;
       return `<section class="panel"><h2>${esc(p.title)}</h2><p class="field-hint">${esc(t(p.purpose === "business" ? "Business" : "Personal"))}</p><div class="spacer"></div>${content}</section>`;

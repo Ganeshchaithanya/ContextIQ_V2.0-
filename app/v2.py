@@ -362,7 +362,7 @@ def daily_suggestions(db, user_id, purpose, notes, plans):
             eligible.append({"id": f"receivable:{plan.id}", "kind": "receivable", "priority": 61,
                              "destination": f"#/budget/business/{plan.id}",
                              "data": {"title": plan.title, "amount_minor": data["amount_minor"], "due": data.get("due")}})
-        if plan.kind == "goal" and data["saved_minor"] < data["target_minor"]:
+        if plan.kind == "goal" and data.get("status") not in ("paused", "purchased") and data["saved_minor"] < data["target_minor"]:
             eligible.append({"id": f"goal:{plan.id}", "kind": "goal", "priority": 18,
                              "destination": f"#/budget/goals/{plan.id}",
                              "data": {"title": plan.title, "amount_minor": data["target_minor"] - data["saved_minor"]}})
@@ -558,12 +558,16 @@ def purchase_budget(db, row):
     current = finance.spending_allocation(funds, scope, bills, plans)
     payable = row.status in ("open", "authorized", "provider_checkout")
     projected_funds = funds - (row.total_minor if payable else 0)
-    projected = finance.spending_allocation(projected_funds, scope, bills, plans) if payable else current
+    items = purchased_totals(row.items)
+    projected = finance.spending_allocation(projected_funds, scope, bills, plans, items, row.purpose) if payable else current
+    planned = next((plan for plan in plans if plan.kind == "goal" and plan.purpose == row.purpose
+                    and plan.data.get("status") == "active" and plan.data.get("product_id") in items), None)
     hard_budget = funds - current["committed_minor"] - current["reserved_minor"]
     return {"scope": scope, "funds_minor": funds, "projected_funds_minor": projected_funds,
             "bills_minor": current["committed_minor"], "allocated_minor": current["reserved_minor"],
             "flexible_before_minor": current["flexible_minor"], "savings_before_minor": current["savings_minor"],
             "savings_after_minor": projected["savings_minor"], "remaining_minor": projected["flexible_minor"],
+            "purchase_plan_id": planned.id if payable and planned else None,
             "alternative": next((p for p in CATALOG if p["id"] == "headphones" and p["price_minor"] <= hard_budget), None)
             if payable and projected["flexible_minor"] < 0 and any(i.get("product_id") == "premium" for i in row.items) else None}
 
@@ -664,7 +668,7 @@ def finalize_payment(db, current, row, result):
                           description=case.title, category="sales", purpose="business", amount=-case.amount,
                           currency=case.currency, settlement_key=sale_key))
     if first_settlement and owned_items:
-        apply_purchased_quantities(db, current.buyer_id, owned_items)
+        apply_purchased_quantities(db, current.buyer_id, owned_items, row.purpose)
     incident = db.scalar(select(PaymentIncident).where(PaymentIncident.case_id == case.id))
     if incident:
         incident.status = "recovered"
@@ -674,29 +678,46 @@ def finalize_payment(db, current, row, result):
     return result | {"case_id": case.id, "status": "paid", "item_ids": [i["id"] for i in owned_items]}
 
 
-def apply_purchased_quantities(db, user_id, items):
-    quantities = defaultdict(int)
+def purchased_totals(items):
+    totals = {}
     for item in items:
-        if item.get("product_id"):
-            quantities[item["product_id"]] += item["quantity"]
-    if not quantities:
+        sku = item.get("product_id")
+        if sku:
+            units, amount = totals.get(sku, (0, 0))
+            totals[sku] = (units + item["quantity"], amount + item["quantity"] * item["unit_minor"])
+    return totals
+
+
+def apply_purchased_quantities(db, user_id, items, purpose):
+    from .v2_watch import linked_purchase_plan, update_purchase_plan
+
+    purchased_products = purchased_totals(items)
+    if not purchased_products:
         return
     prefs = db.get(Personalization, user_id)
     cart = []
     for line in prefs.data.get("cart", []):
-        remaining = line["quantity"] - quantities.get(line["product_id"], 0)
+        remaining = line["quantity"] - purchased_products.get(line["product_id"], (0, 0))[0]
         if remaining > 0:
             cart.append(line | {"quantity": remaining})
     prefs.data = prefs.data | {"cart": cart}
-    urls = {f"{settings.store_url}/product/{sku}": units for sku, units in quantities.items()}
+    urls = {f"{settings.store_url}/product/{sku}": purchase for sku, purchase in purchased_products.items()}
     watches = db.scalars(select(PriceWatch).where(PriceWatch.user_id == user_id, PriceWatch.enabled,
                                                 PriceWatch.source_url.in_(urls)))
     for watch in watches:
-        purchased = urls[watch.source_url]
-        if purchased >= watch.quantity:
+        plan = linked_purchase_plan(db, watch)
+        if plan and plan.data.get("status") != "purchased" and plan.purpose != purpose:
+            continue
+        units, amount = urls[watch.source_url]
+        if units >= watch.quantity:
             watch.enabled = False
+            if plan:
+                plan.data = plan.data | {"status": "purchased"}
         else:
-            watch.quantity -= purchased
+            watch.quantity -= units
+            if plan:
+                plan.data = plan.data | {"saved_minor": max(0, plan.data["saved_minor"] - amount)}
+                update_purchase_plan(plan, watch)
 
 
 @router.post("/invoices/{ident}/authorize")
@@ -1033,7 +1054,11 @@ def compare_emi(body: PlanIn, current=Depends(session)):
 
 @router.get("/plans")
 def plans(current=Depends(session), db=Depends(db_dep)):
-    return [{"id": row.id, "kind": row.kind, "title": row.title, "purpose": row.purpose, "data": row.data} for row in db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == current.buyer_id, PlanningRecord.kind.in_(["goal", "allocation", "emi"])))]
+    today = datetime.fromisoformat(daily_date()).date()
+    rows = db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == current.buyer_id, PlanningRecord.kind.in_(("goal", "allocation", "emi"))))
+    return [{"id": row.id, "kind": row.kind, "title": row.title, "purpose": row.purpose,
+             "data": row.data | {"contribution_minor": finance.goal_contribution(row.data, today)}
+             if row.kind == "goal" and row.data.get("linked_watch_id") else row.data} for row in rows]
 
 
 @router.post("/plans")
@@ -1062,13 +1087,17 @@ class SavingsIn(BaseModel):
 
 @router.put("/plans/{ident}/savings")
 def save_progress(ident: str, body: SavingsIn, current=Depends(session), db=Depends(db_dep)):
-    row = db.get(PlanningRecord, ident)
-    if not row or row.user_id != current.buyer_id or row.kind != "goal":
-        fail(404, "Goal not found")
-    if body.saved_minor > row.data["target_minor"]:
-        fail(422, "Savings exceed this goal's target")
-    row.data = row.data | {"saved_minor": body.saved_minor}
-    return {"ok": True}
+    with WRITE_LOCK:
+        row = db.get(PlanningRecord, ident)
+        if not row or row.user_id != current.buyer_id or row.kind != "goal":
+            fail(404, "Goal not found")
+        if row.data.get("status") == "purchased":
+            fail(409, "This purchase plan is complete")
+        if body.saved_minor > row.data["target_minor"]:
+            fail(422, "Savings exceed this goal's target")
+        row.data = row.data | {"saved_minor": body.saved_minor}
+        db.commit()
+        return {"ok": True}
 
 
 @router.get("/forecast")

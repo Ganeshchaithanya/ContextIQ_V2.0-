@@ -628,7 +628,7 @@ function invoiceBudget(row) {
     ${a.allocated_minor ? kv("Manual reserves", money(a.allocated_minor)) : ""}
     ${a.savings_after_minor !== undefined ? kv(payable ? "Planned savings after payment" : "Planned savings", money(a.savings_after_minor)) : ""}
     ${kv(flexibleLabel, `<span class="${a.remaining_minor < 0 ? "negative" : "positive"}">${money(a.remaining_minor)}</span>`)}
-    ${reducedSavings ? `<div class="notice">${esc(t("This purchase would reduce planned savings by {amount}.").replace("{amount}", money(a.savings_before_minor - a.savings_after_minor)))}</div>` : ""}
+    ${a.purchase_plan_id ? `<div class="notice">${esc(t("The budget accounts for the savings set aside for this purchase."))} ${link("View savings plan", `budget/goals/${a.purchase_plan_id}`, "small ghost")}</div>` : reducedSavings ? `<div class="notice">${esc(t("This purchase would reduce planned savings by {amount}.").replace("{amount}", money(a.savings_before_minor - a.savings_after_minor)))}</div>` : ""}
     ${a.remaining_minor < 0 ? `<div class="notice warn">${esc(t("This purchase exceeds your flexible funds."))}</div>` : ""}
     ${a.alternative ? button("Consider Everyday headphones", "alternative", "", "green") : ""}
     <div class="actions">${link("Spending Allocation", "budget/allocation", "small ghost")}</div>

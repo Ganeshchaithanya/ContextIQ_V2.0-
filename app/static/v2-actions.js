@@ -264,6 +264,17 @@ async function useCamera() {
 }
 
 async function action(name, id) {
+  if (name === "purchase-plan-dialog" || name === "purchase-plan-date") {
+    const existing = name === "purchase-plan-date" ? S.plans.find((plan) => plan.id === id) : null;
+    const defaultDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString("sv-SE", {timeZone: "Asia/Kolkata"});
+    const endpoint = existing ? `/plans/${id}/purchase` : `/watch/${id}/plan`;
+    return modal(`<h2>${esc(t("Plan to buy"))}</h2><p>${esc(t("Tara adjusts savings when the tracked price changes."))}</p><form id="purchase-plan-form" data-endpoint="${esc(endpoint)}" data-method="${existing ? "PUT" : "POST"}">${field("Target date", "target_date", existing?.data.target_date || defaultDate, "date", "required")}${formFooter("Save plan")}</form>`);
+  }
+  if (name === "purchase-plan-toggle") {
+    const plan = S.plans.find((row) => row.id === id);
+    await api(`/plans/${id}/purchase`, { active: plan.data.status === "paused" }, "PUT");
+    return render();
+  }
   if (name === "watch-refresh") {
     const row = await api(`/watch/${id}/refresh`, {});
     toast(row.error || t("Showing the latest recorded price"));
@@ -521,6 +532,12 @@ async function action(name, id) {
 }
 
 async function submit(form) {
+  if (form.id === "purchase-plan-form") {
+    const plan = await api(form.dataset.endpoint, { target_date: form.elements.target_date.value }, form.dataset.method);
+    closeModal();
+    const path = `budget/goals/${plan.id}`;
+    return navigate(path);
+  }
   const data = Object.fromEntries(new FormData(form));
   if (form.id === "watch-product-form") {
     const row = await api("/watch", { url: data.product_url });

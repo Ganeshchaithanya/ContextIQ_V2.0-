@@ -182,6 +182,49 @@ def test_purchase_updates_budget_forecast_and_remaining_interests(client):
     assert {item["title"]: item["quantity"] for item in client.get("/api/v2/watch").json()} == {"Everyday headphones": 1, "USB-C charging cable": 1}
 
 
+def test_price_linked_savings_recalculate_and_release_after_purchase(client, monkeypatch):
+    from datetime import UTC, date, datetime, timedelta
+    from app import v2_watch
+    from app.storefront import app as shop_app
+    from app.v2 import daily_date
+    from app.v2_models import PriceWatch
+
+    with TestClient(shop_app) as shop:
+        shared = shop.post("/handoff", headers={"Origin": "http://testserver"}, json={
+            "items": [{"product_id": "cable", "quantity": 2}],
+        }).json()["url"].split("?cart=")[1]
+    assert client.post("/api/v2/store-cart/track", json={"token": shared}).status_code == 200
+    watch, = client.get("/api/v2/watch").json()
+    due = date.fromisoformat(daily_date())
+    plan = client.post(f"/api/v2/watch/{watch['id']}/plan", json={"target_date": (due + timedelta(days=60)).isoformat()}).json()
+    goal = lambda: next(row for row in client.get("/api/v2/plans").json() if row["id"] == plan["id"])
+    assert goal()["data"]["target_minor"] == 59800 and goal()["data"]["contribution_minor"] == 29900
+    assert client.get("/api/v2/dashboard").json()["flexible_minor"] == 20100
+
+    monkeypatch.setattr(v2_watch, "read_market", lambda _: {"key": "cable", "currency": "INR", "minor": 25000})
+    with SessionLocal() as db:
+        db.get(PriceWatch, watch["id"]).checked_at = datetime.now(UTC) - timedelta(hours=5)
+        db.commit()
+    assert client.post(f"/api/v2/watch/{watch['id']}/refresh").status_code == 200
+    assert goal()["data"]["target_minor"] == 50000 and goal()["data"]["contribution_minor"] == 25000
+    assert client.get("/api/v2/dashboard").json()["flexible_minor"] == 25000
+
+    settings_path = f"/api/v2/plans/{plan['id']}/purchase"
+    assert client.put(settings_path, json={"target_date": (due + timedelta(days=20)).isoformat()}).status_code == 200
+    assert goal()["data"]["contribution_minor"] == 50000
+    assert client.put(settings_path, json={"active": False}).status_code == 200
+    assert client.get("/api/v2/dashboard").json()["flexible_minor"] == 50000
+    assert client.put(settings_path, json={"active": True}).status_code == 200
+
+    row = invoice(client, "cable", 2)
+    assert row["affordability"]["savings_after_minor"] == 190200
+    pay(client, row)
+    assert goal()["data"]["status"] == "purchased"
+    budget = client.get("/api/v2/dashboard").json()
+    assert budget["finance"]["balance_minor"] == 540200 and budget["allocation"]["savings_minor"] == 190200
+    assert not client.get("/api/v2/watch").json()
+
+
 def test_workspace_allocates_after_bills_and_limits_savings_to_recorded_funds():
     with TestClient(app) as trader:
         session = trader.post("/api/v2/session", json={"persona": "shopkeeper"}).json()

@@ -30,7 +30,10 @@ async function watchPage() {
 }
 
 function watchCard(row) {
-  return `<section class="panel"><h2>${esc(row.title)}</h2><p class="field-hint">${esc(row.merchant)} · ${esc(t("Quantity"))} ${row.quantity}</p>${kv("Last observed price", priceMoney(row.current_minor, row.currency))}${kv("Lowest since tracking began", priceMoney(row.low_minor, row.currency))}<p class="field-hint">${esc(t("Last checked"))} ${esc(new Date(row.checked_at).toLocaleString())}</p>${row.error ? `<div class="notice warn">${esc(row.error)}</div>` : ""}<details style="margin:14px 0"><summary>${esc(t("Price history"))}</summary>${row.history.map((sample) => kv(new Date(sample.at).toLocaleString(), priceMoney(sample.amount_minor, row.currency))).join("")}</details><div class="actions"><a class="btn white small" href="${esc(row.source_url)}" rel="noopener noreferrer" target="_blank">${esc(t("Open product page"))} ↗</a>${button("Check price", "watch-refresh", row.id, "small white")}${button("Stop tracking", "watch-stop", row.id, "small ghost")}</div></section>`;
+  const purchase = row.purchase_plan_id
+    ? link("View savings plan", `budget/goals/${row.purchase_plan_id}`, "small green")
+    : row.currency === "INR" ? button("Plan to buy", "purchase-plan-dialog", row.id, "small green") : "";
+  return `<section class="panel"><h2>${esc(row.title)}</h2><p class="field-hint">${esc(row.merchant)} · ${esc(t("Quantity"))} ${row.quantity}</p>${kv("Last observed price", priceMoney(row.current_minor, row.currency))}${kv("Lowest since tracking began", priceMoney(row.low_minor, row.currency))}<p class="field-hint">${esc(t("Last checked"))} ${esc(new Date(row.checked_at).toLocaleString())}</p>${row.error ? `<div class="notice warn">${esc(row.error)}</div>` : ""}<details style="margin:14px 0"><summary>${esc(t("Price history"))}</summary>${row.history.map((sample) => kv(new Date(sample.at).toLocaleString(), priceMoney(sample.amount_minor, row.currency))).join("")}</details><div class="actions">${purchase}<a class="btn white small" href="${esc(row.source_url)}" rel="noopener noreferrer" target="_blank">${esc(t("Open product page"))} ↗</a>${button("Check price", "watch-refresh", row.id, "small white")}${button("Stop tracking", "watch-stop", row.id, "small ghost")}</div></section>`;
 }
 
 const paymentPresentation = {

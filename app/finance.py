@@ -1,5 +1,5 @@
 """Currency-aware accounting over the existing authoritative ledger."""
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import event, select
@@ -51,7 +51,19 @@ def summary(db, user_id, purpose=None, days=30, currency="INR"):
             "categories": categories, "period_start": start.isoformat(), "period_end": today.isoformat()}
 
 
-def spending_allocation(balance, purpose, bills, plans):
+def goal_contribution(data, today, bought_quantity=0, bought_minor=0):
+    if data.get("status") in ("paused", "purchased"):
+        return 0
+    if not data.get("linked_watch_id"):
+        return min(data.get("contribution_minor", 0), max(0, data["target_minor"] - data["saved_minor"]))
+    target = max(0, data["purchase_quantity"] - bought_quantity) * data["price_minor"]
+    saved = max(0, data["saved_minor"] - bought_minor)
+    days = (date.fromisoformat(data["target_date"]) - today).days
+    periods = max(1, (days + 29) // 30)
+    return (max(0, target - saved) + periods - 1) // periods
+
+
+def spending_allocation(balance, purpose, bills, plans, purchase=None, purchase_purpose=None):
     """Plan against recorded cash and obligations without writing ledger entries."""
     scoped = [row for row in plans if purpose == "all" or row.purpose == purpose]
     commitments = [
@@ -73,9 +85,10 @@ def spending_allocation(balance, purpose, bills, plans):
     goals = sorted((row for row in scoped if row.kind == "goal"),
                    key=lambda row: (row.data.get("target_date") or "9999-12-31", row.id))
     savings = []
+    today = (datetime.now(UTC) + timedelta(hours=5, minutes=30)).date()
     for row in goals:
-        target = row.data["target_minor"]
-        requested = min(row.data.get("contribution_minor", 0), max(0, target - row.data["saved_minor"]))
+        bought = (purchase or {}).get(row.data.get("product_id"), (0, 0)) if row.purpose == purchase_purpose else (0, 0)
+        requested = goal_contribution(row.data, today, *bought)
         if requested <= 0:
             continue
         contribution = min(requested, max(remaining, 0))
