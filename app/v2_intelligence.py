@@ -110,7 +110,7 @@ INTENT_SYSTEM = (
 )
 NEXT_TIPS = {
     "budget_shortfall": ("Open Spending Allocation to see which bills and reserves need your attention.", "Review your open commitments and recorded cash."),
-    "purchase_ready": ("Check the latest price and open the store when you are ready.", "Review the planned amount and the tracked item."),
+    "purchase_ready": ("Review the latest price and decide whether to buy or skip this item.", "Compare the price with your budget before deciding."),
     "bill": ("Review the due date and amount on the bill.", "Check what this bill leaves in your spending budget."),
     "goal": ("Review the amount set aside toward this purchase.", "Check the target and planned monthly savings."),
     "receivable": ("Review the customer balance and expected date.", "Check the receipt before adding the money to your budget."),

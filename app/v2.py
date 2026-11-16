@@ -23,7 +23,7 @@ from . import briefcase, finance
 from .agents import commerce
 from .config import settings
 from .db import SessionLocal
-from .models import Case, CaseEvent, Evidence, LedgerEntry, Obligation, OutboundNotice, PolicySnapshot, User, now, _id
+from .models import Approval, AuditLog, Case, CaseEvent, Evidence, LedgerEntry, Obligation, OutboundNotice, PolicySnapshot, User, now, _id
 from .paypal import mock, payments
 from .security import crypto
 from .v2_models import DemoSession, InvoiceSnapshot, Observation, PaymentIncident, Personalization, PlanningRecord, PriceWatch, ProviderCheckout, PurchaseItem
@@ -550,8 +550,8 @@ def create_invoice(db, current, body):
     version = 1
     if body.previous_id:
         old = owned_invoice(db, current, body.previous_id)
-        if old.case_id or db.get(ProviderCheckout, old.id):
-            fail(409, "An authorized invoice cannot be revised")
+        if old.status != "open" or old.case_id or db.get(ProviderCheckout, old.id):
+            fail(409, "Only an open invoice can be revised")
         old.status = "superseded"
         version = old.version + 1
     items = cart_items(body.items)
@@ -576,7 +576,7 @@ def create_invoice(db, current, body):
 
 def owned_invoice(db, current, ident):
     row = db.get(InvoiceSnapshot, ident)
-    if not row or row.workspace_id != current.workspace_id:
+    if not row or (row.workspace_id, row.buyer_id, row.seller_id) != (current.workspace_id, current.buyer_id, current.seller_id):
         fail(404, "Invoice not found")
     return row
 
@@ -614,6 +614,7 @@ def invoice_view(db, row):
             "currency": row.currency, "purpose": row.purpose, "merchant": "BrightMart Electronics", "policy": row.policy,
             "status": row.status, "fingerprint": row.fingerprint, "qr_token": row.qr_token, "expires_at": aware(row.expires_at).isoformat(),
             "case_id": row.case_id, "checkout": checkout_info(db, row.id, row.case_id),
+            "can_decline": can_decline_invoice(db, row),
             "affordability": purchase_budget(db, row)}
 
 
@@ -635,13 +636,36 @@ def invoice(ident: str, current=Depends(session), db=Depends(db_dep)):
     return invoice_view(db, owned_invoice(db, current, ident))
 
 
+def can_decline_invoice(db, row):
+    if row.status == "open":
+        return True
+    if row.status != "authorized" or settings.paypal_env != "mock" or not row.approval_token:
+        return False
+    approval = db.get(Approval, row.approval_token)
+    return bool(approval and not approval.used)
+
+
 @router.post("/invoices/{ident}/cancel")
 def cancel_invoice(ident: str, current=Depends(session), db=Depends(db_dep)):
     with WRITE_LOCK:
         row = owned_invoice(db, current, ident)
-        if row.case_id or db.get(ProviderCheckout, row.id):
-            fail(409, "An authorized payment must be resolved through its purchase record")
+        if row.status == "cancelled":
+            return {"ok": True}
+        if not can_decline_invoice(db, row):
+            fail(409, "Check the original payment status before closing this invoice")
+        if row.case_id:
+            case = db.get(Case, row.case_id)
+            try:
+                state = payments.sync_order_state(db, case)
+            except payments.TRANSIENT:
+                fail(503, "The payment provider is unavailable. Try checking the order again.")
+            if state["capture"] or state["order_status"] not in ("CREATED", "APPROVED"):
+                fail(409, "The payment may already be processing. Check the original order.")
+            db.get(Approval, row.approval_token).used = True
         row.status = "cancelled"
+        db.add(AuditLog(actor=current.buyer_id, action="decline_invoice", case_id=row.case_id,
+                        request={"invoice": row.id, "fingerprint": row.fingerprint},
+                        verdict="allow", reasons=["Buyer declined the purchase before capture"]))
         db.commit()
         return {"ok": True}
 
@@ -669,7 +693,8 @@ def scan(body: ScanIn, current=Depends(session), db=Depends(db_dep)):
     except crypto.TokenError as exc:
         fail(422, str(exc))
     row = owned_invoice(db, current, signed.get("invoice", ""))
-    if signed.get("fingerprint") != row.fingerprint or row.qr_token != raw:
+    if (signed.get("typ"), signed.get("workspace"), signed.get("fingerprint")) != (
+            "ciq.invoice/2", current.workspace_id, row.fingerprint) or row.qr_token != raw:
         fail(422, "Invoice signature does not match")
     if aware(row.expires_at) <= now():
         fail(409, "This invoice has expired. Create a new QR.")
@@ -684,7 +709,7 @@ class AuthorizeIn(BaseModel):
     authorized: bool
     simulated_method: Literal["mock", "upi", "card", "netbanking"] = "mock"
     simulate_interruption: bool = False
-    step_up_code: str | None = None
+    step_up_code: str | None = Field(default=None, pattern=r"^[0-9]{6}$")
 
 
 def finalize_payment(db, current, row, result):
@@ -818,7 +843,7 @@ def reconcile(ident: str, current=Depends(session), db=Depends(db_dep)):
 def reconcile_authorized(db, current, row):
     if row.status == "paid":
         return {"ok": True, "status": "paid", "replayed": True}
-    if not row.case_id:
+    if row.status != "authorized" or not row.case_id:
         fail(409, "No authorized payment exists")
     case = db.get(Case, row.case_id)
     try:

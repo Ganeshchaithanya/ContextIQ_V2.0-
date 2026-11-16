@@ -48,6 +48,38 @@ def pay(client, row, interrupted=False):
     return data
 
 
+def test_confirmation_lockout_and_buyer_can_decline_before_capture(client):
+    row = invoice(client, "headphones")
+    path = f"/api/v2/invoices/{row['id']}"
+    original = client.get("/api/v2/history").json()
+    payload = {"fingerprint": row["fingerprint"], "version": row["version"], "authorized": True}
+    assert client.post(path + "/authorize", json=payload | {"authorized": False}).status_code == 409
+    first = client.post(path + "/authorize", json=payload).json()
+    assert first["gateway"] == "step_up"
+    code = first["step_up_code_demo"]
+    wrong = "000000" if code != "000000" else "000001"
+    for _ in range(5):
+        result = client.post(path + "/authorize", json=payload | {"step_up_code": wrong}).json()
+        assert not result["ok"]
+    result = client.post(path + "/authorize", json=payload | {"step_up_code": code}).json()
+    assert result["gateway"] == "deny" and result["step_up_code_demo"] is None
+    assert "Too many" in result["reasons"][0]
+    assert client.get(path).json()["can_decline"]
+    assert client.post(path + "/cancel").json()["ok"]
+    assert client.post(path + "/cancel").json()["ok"]
+    assert client.get(path).json()["status"] == "cancelled"
+    assert client.post(path + "/authorize", json=payload | {"step_up_code": code}).status_code == 409
+    assert client.post(path + "/reconcile").status_code == 409
+    assert client.post("/api/v2/scan", json={"token": row["qr_token"]}).status_code == 409
+    assert client.get("/api/v2/history").json() == original
+    assert client.get(path).headers["x-frame-options"] == "DENY"
+    unapproved = invoice(client, "cable")
+    assert client.post(f"/api/v2/invoices/{unapproved['id']}/cancel").json()["ok"]
+    assert client.post("/api/v2/invoices", json={
+        "previous_id": unapproved["id"], "items": [{"product_id": "cable", "quantity": 1}],
+    }).status_code == 409
+
+
 def test_partial_refunds_repeated_equal_amounts_and_delivery_window(client):
     row = invoice(client, "cable", 2)
     result = pay(client, row)

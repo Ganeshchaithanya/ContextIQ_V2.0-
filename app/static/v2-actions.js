@@ -163,7 +163,7 @@ async function submitAuthorization(payload) {
   if (result.gateway === "step_up") {
     S.authorization = payload;
     modal(
-      `<h2>${esc(t("Confirm this payment"))}</h2><p>${esc(t("Extra confirmation is required for this demo payment."))}</p><div class="notice">${esc(t("Demo confirmation code"))}: <strong>${esc(result.step_up_code_demo)}</strong></div><form id="stepup-form">${field("Confirmation code", "code", "", "text", "required autocomplete=off inputmode=numeric")}${formFooter("Confirm payment")}</form>`,
+      `<h2>${esc(t("Confirm this payment"))}</h2><p>${esc(t("Extra confirmation is required for this demo payment."))}</p><div class="notice">${esc(t("Demo confirmation code"))}: <strong>${esc(result.step_up_code_demo)}</strong></div><form id="stepup-form">${field("Confirmation code", "code", "", "text", "required autocomplete=off inputmode=numeric pattern=[0-9]{6} maxlength=6")}${formFooter("Confirm payment")}</form><div class="actions">${button("Decline purchase", "cancel-invoice", S.invoice.id, "white")}</div>`,
     );
     return;
   }
@@ -173,7 +173,7 @@ async function submitAuthorization(payload) {
       t(
         result.pending
           ? "Verification pending. Check the original payment before retrying."
-          : result.reason || result.gateway || "Payment was not completed",
+          : result.reason || result.reasons?.[0] || "Payment was not completed",
       ),
     );
     await render();
@@ -278,7 +278,9 @@ async function action(name, id) {
   }
   if (name === "purchase-plan-toggle") {
     const plan = S.plans.find((row) => row.id === id);
-    await api(`/plans/${id}/purchase`, { active: plan.data.status === "paused" }, "PUT");
+    const resume = plan.data.status === "paused";
+    await api(`/plans/${id}/purchase`, { active: resume }, "PUT");
+    if (!resume) toast(t("Savings paused. Price tracking can continue."));
     return render();
   }
   if (name === "watch-refresh") {
@@ -343,6 +345,9 @@ async function action(name, id) {
   }
   if (name === "cancel-invoice") {
     await api(`/invoices/${id}/cancel`, {});
+    S.authorization = null;
+    closeModal();
+    toast(t("Purchase declined"));
     return render();
   }
   if (name === "regenerate") {

@@ -73,6 +73,17 @@ from . import v2_business  # Registers business routes on the same session-scope
 from . import v2_checkout, v2_watch
 app.include_router(v2_router)
 app.middleware("http")(access_control)
+
+
+@app.middleware("http")
+async def protect_checkout_pages(request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 if settings.hosted_demo:
     from .storefront import app as storefront_app
     app.mount("/shop", storefront_app)
