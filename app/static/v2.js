@@ -325,6 +325,20 @@ function observationText(note) {
       label: "Budget",
       destination: "#/budget",
     };
+  if (note.kind === "budget_shortfall")
+    return {
+      title: t("Budget shortfall"),
+      description: t("Bills and reserves exceed recorded cash by {amount}.").replace("{amount}", money(note.data.amount_minor)),
+      label: "Spending Allocation",
+      destination: note.destination,
+    };
+  if (note.kind === "purchase_ready")
+    return {
+      title: note.data.title,
+      description: t("{amount} fits your current budget. Review the latest quote before buying.").replace("{amount}", money(note.data.amount_minor)),
+      label: "View savings plan",
+      destination: note.destination,
+    };
   if (note.kind === "receivable")
     return {
       title: note.data.title,
@@ -480,6 +494,10 @@ function drawChart(id, points) {
 }
 
 function reminderTiming(task, day) {
+  if (task.kind === "budget_shortfall")
+    return { label: t("Review budget"), tone: "urgent" };
+  if (task.kind === "purchase_ready")
+    return { label: t("Fits your budget"), tone: "planned" };
   if (task.kind === "price_low")
     return { label: t("New price low"), tone: "price" };
   if (task.kind === "payment" && task.data.status === "checking")

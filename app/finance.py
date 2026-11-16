@@ -97,30 +97,41 @@ def spending_allocation(balance, purpose, bills, plans, purchase=None, purchase_
                 for row in scoped if row.kind == "allocation"]
     reserved = sum(row["amount_minor"] for row in reserves)
     remaining = balance - committed - reserved
-    goals = sorted((row for row in scoped if row.kind == "goal"),
-                   key=lambda row: (row.data.get("target_date") or "9999-12-31", row.id))
+    goals = sorted((row for row in scoped if row.kind == "goal" and row.data.get("status") not in ("paused", "purchased")),
+                   key=lambda row: (row.data.get("target_date") or "9999-12-31",
+                                    row.data.get("monthly_override_minor") is None, row.id))
+    bought_items = purchase or {}
+    purchases = {row.id: bought_items.get(row.data.get("product_id"), (0, 0))
+                 for row in goals if row.purpose == purchase_purpose}
+    automatic_gaps = {row.id: purchase_gap(row.data, *purchases.get(row.id, (0, 0)))
+                      for row in goals if row.data.get("date_mode") == "automatic"}
+    unallocated_gap = sum(automatic_gaps[row.id] for row in goals
+                          if row.id in automatic_gaps and row.data.get("monthly_override_minor") is None)
     savings = []
     today = (datetime.now(UTC) + timedelta(hours=5, minutes=30)).date()
     monthly_headroom = max(0, monthly_surplus)
     for row in goals:
-        if row.data.get("status") in ("paused", "purchased"):
-            continue
-        bought = (purchase or {}).get(row.data.get("product_id"), (0, 0)) if row.purpose == purchase_purpose else (0, 0)
         estimate = None
         if row.data.get("date_mode") == "automatic":
-            gap = purchase_gap(row.data, *bought)
+            gap = automatic_gaps[row.id]
             if gap <= 0:
                 continue
             override = row.data.get("monthly_override_minor")
-            default_pace = monthly_headroom if monthly_surplus > 0 else (gap if remaining >= gap else 0)
-            pace = override if override is not None else default_pace
+            if override is None:
+                # Share the remaining monthly capacity across automatic goals in proportion to their gaps.
+                capacity = min(monthly_headroom, max(0, remaining)) if monthly_surplus > 0 else (
+                    unallocated_gap if remaining >= unallocated_gap else 0)
+                pace = (capacity * gap + unallocated_gap - 1) // unallocated_gap
+                unallocated_gap -= gap
+            else:
+                pace = override
             requested = min(gap, pace, max(remaining, 0))
             if requested:
                 periods = (gap + requested - 1) // requested
                 if periods <= (date.max.year - today.year) * 12 + 12 - today.month:
                     estimate = add_months(today, periods).isoformat()
         else:
-            requested = goal_contribution(row.data, today, *bought)
+            requested = goal_contribution(row.data, today, *purchases.get(row.id, (0, 0)))
             if requested <= 0:
                 continue
         contribution = min(requested, max(remaining, 0))

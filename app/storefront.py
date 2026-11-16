@@ -43,7 +43,7 @@ def product(sku: str):
 
 
 @app.post("/handoff")
-def handoff(body: CartIn, request: Request, intent: Literal["track", "checkout"] = "track"):
+def handoff(body: CartIn, request: Request, intent: Literal["track", "plan", "checkout"] = "track"):
     origin = request.headers.get("origin")
     expected = settings.store_url if settings.hosted_demo else str(request.base_url).rstrip("/")
     if origin != expected:
@@ -55,5 +55,5 @@ def handoff(body: CartIn, request: Request, intent: Literal["track", "checkout"]
     lines = [{"product_id": row["product_id"], "quantity": row["quantity"]} for row in items]
     token = sign_message({"typ": "brightmart.cart/1", "lines": lines, "intent": intent}, ttl=600)
     context_url = settings.app_url or settings.public_base_url.rstrip("/")
-    route = "watch" if intent == "track" else "purchases/during"
+    route = {"track": "watch", "plan": "budget/goals", "checkout": "purchases/during"}[intent]
     return {"url": f"{context_url}/#/{route}?cart={token}"}

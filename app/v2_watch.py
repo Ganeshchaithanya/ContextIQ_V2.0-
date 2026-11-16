@@ -223,24 +223,29 @@ def plan_purchase(ident: str, body: PurchasePlanIn, current=Depends(session), db
         watch = db.get(PriceWatch, ident)
         if not watch or watch.user_id != current.buyer_id or not watch.enabled:
             fail(404, "Tracked item not found")
-        if watch.currency != "INR":
-            fail(422, "Purchase savings plans currently use INR prices")
-        plan = linked_purchase_plan(db, watch)
-        if plan:
-            return {"id": plan.id}
-        scope = workspace(db.get(Personalization, current.buyer_id).data)
-        sku = watch.source_url.removeprefix(f"{STORE_URL}/product/")
-        product_id = sku if any(product["id"] == sku for product in CATALOG) else None
-        plan = PlanningRecord(id=purchase_plan_key(watch.id), user_id=current.buyer_id, kind="goal",
-                              title=watch.title, purpose="business" if scope == "business" else "personal",
-                              data={"linked_watch_id": watch.id, "product_id": product_id, "status": "active",
-                                    "monthly_override_minor": body.monthly_override_minor,
-                                    "saved_minor": 0, "target_date": purchase_date(body.target_date),
-                                    "date_mode": "fixed" if body.target_date else "automatic"})
-        update_purchase_plan(plan, watch)
-        db.add(plan)
+        prefs = db.get(Personalization, current.buyer_id).data
+        plan = ensure_purchase_plan(db, watch, workspace(prefs), body)
         db.commit()
         return {"id": plan.id}
+
+
+def ensure_purchase_plan(db, watch, scope, body):
+    if watch.currency != "INR":
+        fail(422, "Purchase savings plans currently use INR prices")
+    plan = linked_purchase_plan(db, watch)
+    if plan:
+        return plan
+    sku = watch.source_url.removeprefix(f"{STORE_URL}/product/")
+    product_id = sku if any(product["id"] == sku for product in CATALOG) else None
+    plan = PlanningRecord(id=purchase_plan_key(watch.id), user_id=watch.user_id, kind="goal",
+                          title=watch.title, purpose="business" if scope == "business" else "personal",
+                          data={"linked_watch_id": watch.id, "product_id": product_id, "status": "active",
+                                "monthly_override_minor": body.monthly_override_minor,
+                                "saved_minor": 0, "target_date": purchase_date(body.target_date),
+                                "date_mode": "fixed" if body.target_date else "automatic"})
+    update_purchase_plan(plan, watch)
+    db.add(plan)
+    return plan
 
 
 @router.put("/plans/{ident}/purchase")
@@ -275,18 +280,34 @@ def review_cart(body: SharedCart, current=Depends(session), db=Depends(db_dep)):
 
 @router.post("/store-cart/track")
 def track_cart(body: SharedCart, current=Depends(session), db=Depends(db_dep)):
+    return save_shared_cart(db, current, body, "track")
+
+
+@router.post("/store-cart/plan")
+def plan_cart(body: SharedCart, current=Depends(session), db=Depends(db_dep)):
+    return save_shared_cart(db, current, body, "plan")
+
+
+def save_shared_cart(db, current, body, intent):
     with WRITE_LOCK:
-        items = cart_items(verified_cart(db, body, "track").items)
+        items = cart_items(verified_cart(db, body, intent).items)
         key = hashlib.sha256(f"{current.workspace_id}:{body.token}".encode()).hexdigest()
-        if db.get(PlanningRecord, key):
-            return {"ok": True}
+        existing = db.get(PlanningRecord, key)
+        if existing:
+            return {"ok": True, **existing.data}
+        prefs = db.get(Personalization, current.buyer_id).data
+        scope = workspace(prefs, "merchant")
+        plans = []
         for row in items:
             url = f"{STORE_URL}/product/{row['product_id']}"
             quote = {"title": row["name"], "key": row["product_id"], "minor": row["unit_minor"], "currency": "INR", "merchant": "BrightMart Electronics"}
-            save_watch(db, current.buyer_id, url, quote, row["quantity"])
-        db.add(PlanningRecord(id=key, user_id=current.buyer_id, kind="store_handoff", title="BrightMart watchlist"))
+            watch = save_watch(db, current.buyer_id, url, quote, row["quantity"])
+            if intent == "plan":
+                plans.append(ensure_purchase_plan(db, watch, scope, PurchasePlanIn()).id)
+        data = {"plan_ids": plans} if intent == "plan" else {}
+        db.add(PlanningRecord(id=key, user_id=current.buyer_id, kind="store_handoff", title="BrightMart watchlist", data=data))
         db.commit()
-    return {"ok": True}
+    return {"ok": True, **data}
 
 
 @router.post("/store-cart/checkout")

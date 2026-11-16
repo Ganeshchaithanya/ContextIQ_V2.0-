@@ -264,6 +264,41 @@ def test_automatic_horizon_can_reach_a_year_and_fixed_date_is_editable(monkeypat
         assert plan()["date_mode"] == "fixed" and plan()["contribution_minor"] == 333334
 
 
+def test_cart_plans_share_savings_and_tara_adjusts_when_budget_changes():
+    from app.storefront import app as shop_app
+
+    with TestClient(app) as trader, TestClient(shop_app) as shop:
+        session = trader.post("/api/v2/session", json={"persona": "shopkeeper"}).json()
+        trader.headers["x-csrf-token"] = session["csrf"]
+        handoff = shop.post("/handoff?intent=plan", headers={"Origin": "http://testserver"}, json={
+            "items": [{"product_id": "laptop", "quantity": 1}, {"product_id": "cable", "quantity": 2}],
+        }).json()["url"]
+        assert "#/budget/goals?cart=" in handoff
+        body = {"token": handoff.split("?cart=")[1]}
+        assert trader.post("/api/v2/store-cart/checkout", json=body).status_code == 422
+        result = trader.post("/api/v2/store-cart/plan", json=body).json()
+        assert len(result["plan_ids"]) == 2
+        assert trader.post("/api/v2/store-cart/plan", json=body).json() == result
+        planned = [p for p in trader.get("/api/v2/plans").json() if p["id"] in result["plan_ids"]]
+        assert len(planned) == 2
+        assert all(p["purpose"] == "business" and p["data"]["date_mode"] == "automatic"
+                   and p["data"]["contribution_minor"] > 0 for p in planned)
+        assert sum(p["data"]["contribution_minor"] for p in planned) == 500000
+        assert trader.get("/api/v2/invoices").json() == []
+        before = trader.get("/api/v2/dashboard").json()
+        ready, = [task for task in before["suggestions"] if task["kind"] == "purchase_ready"]
+        assert ready["data"]["amount_minor"] == 59800
+
+        assert trader.post("/api/v2/business", json={
+            "kind": "supplier_invoice", "title": "Extra stock", "amount_minor": 5400000,
+        }).status_code == 200
+        after = trader.get("/api/v2/dashboard").json()
+        assert after["focus"]["kind"] == "budget_shortfall"
+        assert after["focus"]["data"]["amount_minor"] == 100000
+        assert not any(task["kind"] == "purchase_ready" for task in after["suggestions"])
+        assert after["finance"]["balance_minor"] == before["finance"]["balance_minor"]
+
+
 def test_workspace_allocates_after_bills_and_limits_savings_to_recorded_funds():
     with TestClient(app) as trader:
         session = trader.post("/api/v2/session", json={"persona": "shopkeeper"}).json()

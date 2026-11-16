@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import secrets
@@ -352,8 +353,37 @@ def reminder_priority(note, today):
     return {0: 85, 1: 80}.get(days, note["priority"])
 
 
-def daily_suggestions(db, user_id, purpose, notes, plans):
+def budget_suggestions(db, user_id, purpose, plans, allocation):
+    from .v2_watch import CHECK_AFTER
+
+    free_cash = allocation["flexible_minor"]
+    if free_cash < 0:
+        yield {"id": f"shortfall:{purpose}", "kind": "budget_shortfall", "priority": 93,
+               "destination": "#/budget/allocation", "data": {"amount_minor": -free_cash}}
+        return
+    contributions = {row["id"]: row["amount_minor"] for row in allocation["savings"]}
+    ready_plans = [plan for plan in plans if plan.kind == "goal" and plan.data.get("status") == "active"
+                   and plan.data.get("linked_watch_id") and (purpose == "all" or plan.purpose == purpose)
+                   and 0 < plan.data["target_minor"] <= free_cash + contributions.get(plan.id, 0)]
+    if not ready_plans:
+        return
+    watch_ids = [plan.data["linked_watch_id"] for plan in ready_plans]
+    fresh_quotes = set(db.scalars(select(PriceWatch.id).where(PriceWatch.user_id == user_id, PriceWatch.id.in_(watch_ids),
+        PriceWatch.enabled, PriceWatch.error == "", PriceWatch.checked_at >= now() - CHECK_AFTER)))
+    for plan in ready_plans:
+        if plan.data["linked_watch_id"] in fresh_quotes:
+            yield {"id": f"affordable:{plan.id}", "kind": "purchase_ready", "priority": 69,
+                   "destination": f"#/budget/goals/{plan.id}",
+                   "data": {"title": plan.title, "amount_minor": plan.data["target_minor"]}}
+
+
+def daily_suggestions(db, user_id, purpose, notes, plans, allocation=None):
+    if allocation is None:
+        amounts = finance.summary(db, user_id, purpose)
+        allocation = finance.spending_allocation(amounts["balance_minor"], purpose, bill_rows(db, user_id), plans,
+            monthly_surplus=amounts["income_minor"] - amounts["expense_minor"])
     eligible = [note for note in notes if purpose == "all" or note["data"].get("purpose", purpose) in (purpose, "all")]
+    eligible.extend(budget_suggestions(db, user_id, purpose, plans, allocation))
     for plan in plans:
         if purpose != "all" and plan.purpose != purpose:
             continue
@@ -416,7 +446,7 @@ def dashboard(activity: str = "", hour: int | None = None, days: int = 30, curre
     allocation = finance.spending_allocation(financial["balance_minor"], purpose, bills, plans,
                                              monthly_surplus=month["income_minor"] - month["expense_minor"])
     notes = observations(db, current.buyer_id)
-    suggestions = daily_suggestions(db, current.buyer_id, purpose, notes, plans)
+    suggestions = daily_suggestions(db, current.buyer_id, purpose, notes, plans, allocation)
     return {"profile": prefs, "workspace": purpose, "finance": financial, "bills": bills,
             "committed_minor": allocation["committed_minor"],
             "allocated_minor": allocation["reserved_minor"] + allocation["savings_minor"],
@@ -1318,13 +1348,21 @@ def guide_tip(kind: str, urgency: Literal["urgent", "soon", "normal"] = "normal"
 
 def observation_worker(stop):
     while not stop.wait(60):
-        with WRITE_LOCK, SessionLocal() as db:
+        try:
+            with SessionLocal() as db:
+                active = list(db.scalars(select(DemoSession.token_hash).where(DemoSession.expires_at > now())))
+        except Exception:
+            logging.getLogger(__name__).exception("Could not load active workspaces")
+            continue
+        for token_hash in active:
+            if stop.is_set():
+                return
             try:
-                for row in db.scalars(select(DemoSession).where(DemoSession.expires_at > now())):
+                with WRITE_LOCK, SessionLocal.begin() as db:
+                    row = db.get(DemoSession, token_hash)
+                    if not row or aware(row.expires_at) <= now():
+                        continue
                     refresh_interrupted_payments(db, row)
                     observations(db, row.buyer_id)
-                db.commit()
             except Exception:
-                db.rollback()
-                import logging
-                logging.getLogger(__name__).exception("Observation refresh failed")
+                logging.getLogger(__name__).exception("Workspace observation refresh failed")

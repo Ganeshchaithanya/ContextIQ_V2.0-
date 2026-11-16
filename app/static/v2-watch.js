@@ -9,13 +9,16 @@ function priceMoney(minor, currency) {
 async function applyStoreHandoff(route, hash, renderId) {
   const [page, section] = route;
   const intent = page === "watch" ? "track" :
+    page === "budget" && section === "goals" ? "plan" :
     page === "purchases" && section === "during" ? "checkout" : null;
   const token = new URLSearchParams(hash.split("?")[1]).get("cart");
   if (!intent || !token) return false;
   const result = await api(`/store-cart/${intent}`, { token });
   if (renderId !== S.renderId || hash !== location.hash) return true;
-  const destination = intent === "track" ? "purchases/before" : `invoice/${result.id}`;
+  const destination = intent === "track" ? "purchases/before" :
+    intent === "plan" ? "budget/goals" : `invoice/${result.id}`;
   if (intent === "track") toast(t("Items added to your watchlist"));
+  if (intent === "plan") toast(t("Cart items linked to your savings plans"));
   // Replace the signed handoff URL so refreshing or using Back does not repeat it.
   history.replaceState(null, "", `#/${destination}`);
   await render();
