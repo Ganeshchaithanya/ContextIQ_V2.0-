@@ -538,15 +538,18 @@ const guide = (() => {
     }
   }
 
+  function minimize() {
+    minimized = true;
+    openedByUser = false;
+    draw();
+    $('[data-guide="open"]', $("#visual-guide"))?.focus();
+  }
+
   $("#visual-guide").addEventListener("click", (event) => {
     const command = event.target.closest("[data-guide]")?.dataset.guide;
     if (!command || !current) return;
     if (command === "minimize" || command === "dismiss") {
-      minimized = true;
-      openedByUser = false;
-      draw();
-      $('[data-guide="open"]', $("#visual-guide"))?.focus();
-      return;
+      return minimize();
     }
     if (current.tour) {
       if (command === "tour-next") return moveTour(1);
@@ -646,5 +649,5 @@ const guide = (() => {
   });
   window.addEventListener("resize", scheduleSpotlight);
   window.addEventListener("scroll", scheduleSpotlight, {passive: true});
-  return { update, clear, refreshHomeFocus, startTour };
+  return { update, clear, refreshHomeFocus, startTour, minimize };
 })();

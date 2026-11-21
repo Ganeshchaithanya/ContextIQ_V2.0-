@@ -42,7 +42,7 @@ restart stability and rejection of weak secrets.
 
 Test inventory: 35 purchase/budget checks, 24 seller checks, 15 operations checks,
 42 legacy flow checks, 6 experience checks, 2 PostgreSQL integration checks and
-33 JavaScript checks: **157 automated checks**, plus builds and the restore drill.
+36 JavaScript checks: **160 automated checks**, plus builds and the restore drill.
 Python files run in separate processes because each owns its test database settings.
 
 ## Verification limits
@@ -88,3 +88,8 @@ The widget does not inject into the separate BrightMart website or arbitrary thi
 party sites. It does not authorize payments. Browser/device interaction still needs
 a physical UI check; DOM, pointer, keyboard, boundary, privacy and API paths are covered
 by the automated checks described above.
+
+Resize from any corner to change width and height independently. Releasing below
+230 px wide or 200 px tall minimizes Tara into the message icon; reopening restores
+the last readable rectangle and conversation. Canceling a pointer gesture does not
+minimize the assistant.
