@@ -57,7 +57,8 @@ def fail(code, message):
 def db_dep(request: Request):
     with SessionLocal() as db:
         try:
-            if db.bind.dialect.name == "postgresql" and request.method not in ("GET", "HEAD", "OPTIONS"):
+            if (db.bind.dialect.name == "postgresql" and request.method not in ("GET", "HEAD", "OPTIONS")
+                    and getattr(request.state, "session_hash", None)):
                 from sqlalchemy import text
                 subject = getattr(request.state, "session_hash", "anonymous")
                 lock_id = int.from_bytes(hashlib.sha256(subject.encode()).digest()[:8], "big", signed=True)
@@ -199,6 +200,11 @@ def create_session(body: SessionIn, request: Request, response: Response, db=Dep
     if existing and aware(existing.expires_at) > now():
         return {"csrf": existing.csrf, "demo": True}
     if settings.hosted_demo:
+        from .security.identity import rate_allowed
+        allowed = rate_allowed(db, "demo-admission", limit=30)
+        db.commit()
+        if not allowed:
+            fail(429, "The demo is busy. Try again in a minute.")
         with WRITE_LOCK:
             stamp = time.monotonic()
             while NEW_DEMO_REQUESTS and NEW_DEMO_REQUESTS[0] <= stamp - 60:
@@ -218,7 +224,9 @@ def create_session(body: SessionIn, request: Request, response: Response, db=Dep
 @router.post("/auth/exchange")
 def verified_session(request: Request, response: Response, db=Depends(db_dep)):
     from .security.identity import exchange, rate_allowed
-    if not rate_allowed(db, "identity-exchange", limit=30):
+    allowed = rate_allowed(db, "identity-exchange", limit=30)
+    db.commit()  # Count failed identity attempts too; do not hold rate locks during JWKS I/O.
+    if not allowed:
         fail(429, "Please retry sign-in later")
     header = request.headers.get("authorization", "")
     if not header.startswith("Bearer "):

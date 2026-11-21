@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 import jwt
 from fastapi import HTTPException
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, update, text
 from sqlalchemy.exc import IntegrityError
 from ..config import settings
 from ..models import RateWindow, User, VerifiedIdentity, _id
@@ -35,6 +35,9 @@ def verify_token(token):
 def exchange(db, token):
     claims = verify_token(token)
     ident = hashlib.sha256((claims["iss"] + "\0" + claims["sub"]).encode()).hexdigest()
+    if db.bind.dialect.name == "postgresql":
+        lock_id = int.from_bytes(bytes.fromhex(ident)[:8], "big", signed=True)
+        db.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": lock_id})
     # Subject, issuer, audience, signature and expiry are verified before database access.
     principal = db.scalar(select(VerifiedIdentity).where(VerifiedIdentity.id == ident).with_for_update())
     if not principal:
