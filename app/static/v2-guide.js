@@ -19,8 +19,8 @@ const guide = (() => {
   let tourIndex = null;
   let spotlightStep = null;
   let spotlightFrame = null;
+  // Demo tours start once per page visit, even after a previous visit was skipped.
   let tourSeen = false;
-  try { tourSeen = localStorage.getItem(tourStorageKey) === "seen"; } catch { /* Use session state. */ }
   const tourSteps = [
     { route: "home", selector: ".balance-card", title: "Start with your money", body: "Available funds shows your recorded cash. Available to spend accounts for bills and planned savings. Your to-do list puts urgent work first." },
     { route: "seller", selector: ".seller-stats", title: "See who owes you", body: "Back office shows business cash, unpaid invoices and overdue clients. Open an invoice from this page to follow up." },
@@ -471,8 +471,9 @@ const guide = (() => {
   }
 
   function update() {
-    if (!tourSeen && !paused && S.csrf && S.profile.onboarded && S.route[0] === "home") {
+    if (!tourSeen && S.csrf && S.profile.onboarded && S.route[0] === "home") {
       rememberTour();
+      paused = false;
       tourIndex = 0;
     }
     const step = tourIndex === null ? null : tourSteps[tourIndex];

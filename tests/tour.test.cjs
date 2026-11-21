@@ -75,7 +75,7 @@ test("seven steps navigate automatically, and finish restores normal page presen
   assert.equal(app.storage.get("contextiq.tara-tour.v2"), "seen");
 });
 
-test("Escape and Skip remove the veil, and a completed tour does not repeat automatically", () => {
+test("Escape and Skip dismiss this visit, while returning demo visits auto-start the tour", () => {
   const app = setup();
   app.update();
   let prevented = false;
@@ -89,7 +89,10 @@ test("Escape and Skip remove the veil, and a completed tour does not repeat auto
   assert.equal(app.query("#tour-spotlight").hidden, false);
   app.click("tour-skip");
   assert.equal(app.query("#tour-spotlight").hidden, true);
-  const returning = setup({"contextiq.tara-tour.v2": "seen"});
+  const returning = setup({"contextiq.tara-tour.v2": "seen", "contextiq.visual-guide.paused": "yes"});
+  returning.update();
+  assert(returning.query("#visual-guide").attributes.has("data-tour"));
+  returning.click("tour-skip");
   returning.update();
   assert(!returning.query("#visual-guide").attributes.has("data-tour"));
 });
