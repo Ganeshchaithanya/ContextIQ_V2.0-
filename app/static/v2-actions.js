@@ -102,6 +102,7 @@ function collectPreferences(form) {
   const data = Object.fromEntries(new FormData(form));
   for (const name of ["context_consent", "voice_enabled", "learning_enabled"])
     data[name] = form.elements[name]?.checked || false;
+  if (form.elements.allow_model_questions) data.allow_model_questions = form.elements.allow_model_questions.checked;
   data.features = ["budget", "purchases", "goals", "emi", "business"].filter(
     (key) => form.elements[`feature-${key}`]?.checked,
   );
@@ -340,7 +341,7 @@ async function action(name, id) {
     return render();
   }
   if (name === "copy-qr") {
-    await navigator.clipboard.writeText(S.invoice.qr_token);
+    await navigator.clipboard.writeText(paymentLink(S.invoice));
     return toast(t("Copied"));
   }
   if (name === "cancel-invoice") {
@@ -619,7 +620,21 @@ async function submit(form) {
     });
     return navigate(`invoice/${row.id}`);
   }
+  if (form.id === "privacy-form") {
+    const value = form.elements.allow_model_questions.checked;
+    await api("/privacy", {allow_model_questions: value}, "PUT");
+    S.profile.allow_model_questions = value;
+    toast("AI privacy choice saved");
+    return render();
+  }
   if (form.id === "scan-form") {
+    if (!S.csrf) {
+      const session = await api("/session", {persona: "freelancer"});
+      S.csrf = session.csrf;
+      S.profile = await api("/profile");
+      if (!S.profile.onboarded) S.profile = await api("/profile", S.profile, "PUT");
+      return render();
+    }
     const result = await api("/scan", { token: data.token.trim() });
     if (result.invoice) return navigate(`invoice/${result.invoice.id}`);
     $("#scan-result").innerHTML =

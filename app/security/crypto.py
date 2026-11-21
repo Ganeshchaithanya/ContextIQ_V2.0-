@@ -24,6 +24,11 @@ _KEY_FILE = DATA_DIR / "ed25519_signing_key.pem"
 
 
 def _load_key() -> Ed25519PrivateKey:
+    if settings.hosted_demo or getattr(settings, "auth_mode", "demo") == "oidc":
+        if len(settings.server_secret) < 32:
+            raise RuntimeError("Hosted signing requires a strong persistent SERVER_SECRET")
+        seed = hmac.new(settings.server_secret.encode(), b"contextiq:ed25519:v1", hashlib.sha256).digest()
+        return Ed25519PrivateKey.from_private_bytes(seed)
     if _KEY_FILE.exists():
         return serialization.load_pem_private_key(_KEY_FILE.read_bytes(), password=None)  # type: ignore[return-value]
     key = Ed25519PrivateKey.generate()

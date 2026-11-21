@@ -263,6 +263,7 @@ class ProfileIn(BaseModel):
     context_consent: bool = False
     location_consent: bool = False
     voice_enabled: bool = False
+    allow_model_questions: bool = True
     learning_enabled: bool = False
     work_start: int = Field(default=9, ge=0, le=23)
     work_end: int = Field(default=18, ge=0, le=23)
@@ -278,7 +279,10 @@ def profile(current=Depends(session), db=Depends(db_dep)):
 @router.put("/profile")
 def save_profile(body: ProfileIn, current=Depends(session), db=Depends(db_dep)):
     record = db.get(Personalization, current.buyer_id)
-    record.data = record.data | body.model_dump() | {"onboarded": True}
+    values = body.model_dump()
+    if "allow_model_questions" not in body.model_fields_set:
+        values.pop("allow_model_questions")
+    record.data = record.data | values | {"onboarded": True}
     user = db.get(User, current.buyer_id)
     user.name = body.name
     user.setup_done = True
@@ -681,10 +685,12 @@ def purchase_budget(db, row):
 
 def invoice_view(db, row):
     from .v2_checkout import checkout_info
+    from urllib.parse import quote
+    payment_url = f"{(settings.app_url or settings.public_base_url).rstrip('/')}/#/scan?code={quote(row.qr_token, safe='')}"
     return {"id": row.id, "version": row.version, "kind": row.kind, "items": row.items, "total_minor": row.total_minor,
             "currency": row.currency, "purpose": row.purpose, "merchant": "BrightMart Electronics", "policy": row.policy,
             "status": row.status, "fingerprint": row.fingerprint, "qr_token": row.qr_token, "expires_at": aware(row.expires_at).isoformat(),
-            "case_id": row.case_id, "checkout": checkout_info(db, row.id, row.case_id),
+            "case_id": row.case_id, "payment_url": payment_url, "checkout": checkout_info(db, row.id, row.case_id),
             "can_decline": can_decline_invoice(db, row),
             "affordability": purchase_budget(db, row)}
 
@@ -748,6 +754,16 @@ class ScanIn(BaseModel):
 @router.post("/scan")
 def scan(body: ScanIn, current=Depends(session), db=Depends(db_dep)):
     raw = body.token.strip()
+    from urllib.parse import urlsplit, parse_qs
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        fail(422, "The payment link is invalid")
+    trusted_origins = {urlsplit(value).netloc for value in (settings.app_url, settings.public_base_url) if value}
+    if parsed.scheme in ("https", "http") and parsed.netloc in trusted_origins and parsed.fragment.startswith("/scan?"):
+        raw = parse_qs(parsed.fragment.split("?", 1)[1]).get("code", [""])[0]
+        if not raw or len(raw) > 10000:
+            fail(422, "The payment link has no valid QR code")
     if not raw.startswith("ciq1."):
         from .agents.qr import interpret
         from .v2_checkout import upi_handoff
@@ -1427,6 +1443,44 @@ class AskIn(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
 
 
+class PrivacyIn(BaseModel):
+    allow_model_questions: bool
+
+
+@router.put("/privacy")
+def privacy_settings(body: PrivacyIn, current=Depends(session), db=Depends(db_dep)):
+    row = db.get(Personalization, current.buyer_id)
+    row.data = row.data | {"allow_model_questions": body.allow_model_questions}
+    return {"allow_model_questions": body.allow_model_questions}
+
+
+@router.get("/transparency")
+def transparency(current=Depends(session), db=Depends(db_dep)):
+    from sqlalchemy import func
+    from .intelligence import llm
+    from .models import AgentRun, WorkerHeartbeat
+    prefs = db.get(Personalization, current.buyer_id).data
+    data = dashboard(current=current, db=db)
+    allocation = data["allocation"]
+    latest = db.scalar(select(AgentRun).where(AgentRun.user_id == current.buyer_id, AgentRun.status == "complete")
+                       .order_by(AgentRun.updated_at.desc()).limit(1))
+    count = db.scalar(select(func.count()).select_from(AgentRun).where(AgentRun.user_id == current.buyer_id, AgentRun.status == "complete"))
+    watches = db.scalar(select(func.count()).select_from(PriceWatch).where(PriceWatch.user_id == current.buyer_id, PriceWatch.enabled))
+    heartbeat = db.get(WorkerHeartbeat, "scheduler")
+    result = latest.state.get("result", {}) if latest else {}
+    return {"as_of": now().isoformat(), "workspace": data["workspace"],
+            "model_questions_enabled": prefs.get("allow_model_questions", True),
+            "model_available": llm.available(), "provider": llm.PROVIDER if llm.available() else None,
+            "impact": {"committed_minor": allocation["committed_minor"], "reserved_minor": allocation["reserved_minor"],
+                       "savings_minor": allocation["savings_minor"], "flexible_minor": allocation["flexible_minor"],
+                       "priorities": len([row for row in data["suggestions"] if not row["completed"]]),
+                       "active_watches": watches, "saved_analyses": count},
+            "last_analysis": {"at": aware(latest.updated_at).isoformat(), "routing": result.get("routing", "rules"),
+                              "topic": result.get("topic"), "run_id": latest.id} if latest else None,
+            "worker": {"mode": settings.worker_mode,
+                       "last_heartbeat": aware(heartbeat.at).isoformat() if heartbeat else None}}
+
+
 @router.post("/ask")
 def ask(body: AskIn, request: Request, current=Depends(session), db=Depends(db_dep)):
     from .agent_runs import execute
@@ -1436,7 +1490,8 @@ def ask(body: AskIn, request: Request, current=Depends(session), db=Depends(db_d
     run = AgentRun(user_id=current.buyer_id, state={"started_at": now().timestamp(),
         "request_id": getattr(request.state, "request_id", ""), "input": {
         "message": body.message, "user_id": current.buyer_id,
-        "workspace_id": current.workspace_id, "language": prefs.get("language", "en")}})
+        "workspace_id": current.workspace_id, "language": prefs.get("language", "en"),
+        "allow_model_questions": prefs.get("allow_model_questions", True)}})
     db.add(run)
     db.flush()
     job = publish(db, topic="tara.resume", aggregate_id=run.id, aggregate_type="agent",

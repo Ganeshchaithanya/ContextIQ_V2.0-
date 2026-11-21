@@ -198,9 +198,9 @@
   function upiQr(reminder) {
     if (typeof qrcode !== "function") return `<p class="field-hint">QR code unavailable. Use the UPI link in the reminder.</p>`;
     const qr = qrcode(0, "M");
-    qr.addData(reminder.upi_link);
+    qr.addData(paymentLink({qr_token: reminder.upi_link}));
     qr.make();
-    return qr.createImgTag(4, 8, "UPI payment QR code");
+    return qr.createImgTag(5, 12, "Open ContextIQ payment-code entry, then review the UPI request");
   }
 
   function reminderPanel(reminder, invoiceId) {
@@ -285,25 +285,24 @@
 
   // ---------- cash forecast ----------
   function forecastChart(series, label) {
+    const model = chartModel(series);
+    if (!model) return '<p class="field-hint">No forecast records available.</p>';
+    series = model.rows;
     const W = 720, H = 260, L = 76, R = 12, T = 14, B = 30;
-    const values = series.map((d) => d.balance_minor);
-    let lo = Math.min(0, ...values), hi = Math.max(0, ...values);
-    if (hi === lo) hi += 1;
-    const pad = (hi - lo) * 0.08;
-    lo -= pad;
-    hi += pad;
+    const lo = model.min, hi = model.max;
     const x = (i) => L + (i * (W - L - R)) / Math.max(series.length - 1, 1);
     const y = (v) => T + ((hi - v) * (H - T - B)) / (hi - lo);
-    const line = series.map((d, i) => `${x(i).toFixed(1)},${y(d.balance_minor).toFixed(1)}`).join(" ");
+    const line = series.map((d, i) => `${i ? `${x(i).toFixed(1)},${y(series[i - 1].balance_minor).toFixed(1)} ` : ""}${x(i).toFixed(1)},${y(d.balance_minor).toFixed(1)}`).join(" ");
     const area = `${x(0).toFixed(1)},${(H - B).toFixed(1)} ${line} ${x(series.length - 1).toFixed(1)},${(H - B).toFixed(1)}`;
-    const ticks = [0, 1, 2, 3].map((k) => lo + ((hi - lo) * k) / 3);
+    const ticks = model.ticks;
     const grid = ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" class="grid"/><text x="${L - 8}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${esc(rupee(Math.round(v)))}</text>`).join("");
-    const zero = `<line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" class="zero"/>`;
+    const zero = lo <= 0 && hi >= 0 ? `<line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" class="zero"/>` : "";
     const mid = Math.floor((series.length - 1) / 2);
     const xLabels = [0, mid, series.length - 1].map((i) => `<text x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="${i === 0 ? "start" : i === series.length - 1 ? "end" : "middle"}">${shortDate(series[i].date)}</text>`).join("");
     const firstNeg = series.findIndex((d) => d.balance_minor < 0);
     const marker = firstNeg >= 0 ? `<circle cx="${x(firstNeg).toFixed(1)}" cy="${y(series[firstNeg].balance_minor).toFixed(1)}" r="5" class="neg-dot"/>` : "";
-    return `<svg class="seller-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${grid}${zero}<polygon points="${area}" class="area"/><polyline points="${line}" class="line"/>${marker}${xLabels}</svg>`;
+    const inspection = series.map((d, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(d.balance_minor).toFixed(1)}" r="7" fill="transparent"><title>${esc(longDate(d.date))}: ${esc(rupee(d.balance_minor))}</title></circle>`).join("");
+    return `<svg class="seller-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">${grid}${zero}<polygon points="${area}" class="area"/><polyline points="${line}" class="line"/>${marker}${xLabels}${inspection}</svg>`;
   }
 
   async function forecastView(query) {

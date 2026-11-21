@@ -51,6 +51,10 @@ jobs:
           PAYPAL_ENV: mock
           CONTEXTIQ_LEGACY_TEST_AUTH: "0"
           CONTEXTIQ_MOCK_STORE: ${{ runner.temp }}/contextiq-v2-mock.json
+      - run: python -m pytest tests/test_experience.py -q
+        env:
+          GROQ_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
       - run: python -m pytest tests/test_seller.py -q
         env:
           PAYPAL_ENV: mock
@@ -65,4 +69,4 @@ jobs:
         env:
           RENDER_APP_URL: https://contextiq.example.com
       - run: node build-contextiq.mjs
-      - run: node --test tests/tour.test.cjs
+      - run: node --test tests/tour.test.cjs tests/experience.test.cjs

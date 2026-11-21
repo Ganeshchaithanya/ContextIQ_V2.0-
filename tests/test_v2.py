@@ -120,15 +120,16 @@ def test_emi_minor_unit_rounding_and_business_scope(client):
     assert next(row for row in client.get("/api/v2/history").json() if row["description"] == "Payment recorded by user")["purpose"] == "business"
 
 
-def test_concurrent_authorization_settles_once(client):
+@pytest.mark.parametrize("workers", [2, 8, 20])
+def test_concurrent_authorization_settles_once(client, workers):
     from concurrent.futures import ThreadPoolExecutor
     row = invoice(client, "cable")
     payload = {"fingerprint": row["fingerprint"], "version": row["version"], "authorized": True, "simulated_method": "upi"}
     initial = client.post(f"/api/v2/invoices/{row['id']}/authorize", json=payload).json()
     if initial.get("gateway") == "step_up":
         payload["step_up_code"] = initial["step_up_code_demo"]
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: client.post(f"/api/v2/invoices/{row['id']}/authorize", json=payload), range(2)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(lambda _: client.post(f"/api/v2/invoices/{row['id']}/authorize", json=payload), range(workers)))
     assert all(result.status_code == 200 and result.json()["ok"] for result in results)
     paid = client.get(f"/api/v2/invoices/{row['id']}").json()
     assert paid["checkout"]["simulated_method"] == "upi"

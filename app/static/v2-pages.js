@@ -274,6 +274,12 @@ async function render() {
   )
     .split("?")[0]
     .split("/");
+  if (!S.csrf && S.route[0] === "scan") {
+    $("#app").innerHTML = `<main id="main" class="public-scan" tabindex="-1"><a class="brand" href="#/home">ContextIQ<b>.</b></a>${scanPage()}</main>`;
+    document.title = "Payment code · ContextIQ";
+    guide.update();
+    return;
+  }
   if (!S.csrf) return welcome();
   if (!S.profile.onboarded) return onboarding();
   if (S.route[0] === "store") return window.location.assign("/store");
@@ -295,6 +301,7 @@ async function render() {
       ask: askPage,
       knowledge: knowledgePage,
       preferences: preferencesPage,
+      transparency: transparencyPage,
       watch: watchPage,
       merchant: merchantPage,
     };
@@ -310,9 +317,9 @@ async function render() {
       drawChart("forecast-chart", S.forecast.points);
     if ($("#qr-image")) {
       const qr = qrcode(0, "M");
-      qr.addData(S.invoice.qr_token);
+      qr.addData(paymentLink(S.invoice));
       qr.make();
-      $("#qr-image").innerHTML = qr.createImgTag(4, 8, "Invoice QR");
+      $("#qr-image").innerHTML = qr.createImgTag(5, 12, "Scan to open ContextIQ payment code entry");
     }
     if ($("#messages"))
       $("#messages").lastElementChild?.scrollIntoView({ block: "nearest" });

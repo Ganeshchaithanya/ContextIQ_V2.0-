@@ -46,10 +46,20 @@ def summary(db, user_id, purpose=None, days=30, currency="INR"):
     expenses = sum(row.amount_minor for row in period if row.amount_minor > 0)
     balance = opening
     chart = []
+    from collections import defaultdict
+    daily = defaultdict(lambda: [0, 0])
+    for row in period:
+        bucket = daily[accounting_date(row.occurred_at)]
+        if row.amount_minor < 0:
+            bucket[0] -= row.amount_minor
+        else:
+            bucket[1] += row.amount_minor
     for offset in range(days):
         day = start + timedelta(days=offset)
-        balance -= sum(row.amount_minor for row in period if accounting_date(row.occurred_at) == day)
-        chart.append({"date": day.isoformat(), "balance_minor": balance})
+        money_in, money_out = daily[day]
+        balance += money_in - money_out
+        chart.append({"date": day.isoformat(), "balance_minor": balance,
+                      "income_minor": money_in, "expense_minor": money_out})
     categories = {}
     for row in period:
         if row.amount_minor > 0:

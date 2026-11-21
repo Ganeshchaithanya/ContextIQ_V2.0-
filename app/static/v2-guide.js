@@ -201,6 +201,8 @@ const guide = (() => {
   }
 
   function pageCue() {
+    if (S.route[0] === "scan" && $("#token"))
+      return cue("scan-entry", "#token", "Your payment starts here", "Paste or type the code, then verify the recipient and amount. Opening this page never approves a payment.");
     if (
       !S.csrf ||
       !S.profile.onboarded ||
@@ -276,7 +278,16 @@ const guide = (() => {
         "Check the amount and due date. Record a payment here only after you’ve paid it elsewhere.",
       );
     }
-    return null;
+    const pages = {
+      home: [".daily-checklist", "Your next useful action", "The checklist prioritizes recorded needs. Your balance and chart update when money is recorded."],
+      ask: [".chat-form", "Ask and inspect the evidence", "Ask about your situation. View details shows the calculations, source records and assumptions behind the answer."],
+      transparency: ["#privacy-controls", "See Tara's work and your choices", "Review the current planning figures and decide whether unfamiliar questions may use the cloud model."],
+      knowledge: ["#knowledge-search", "Find a reviewed guide", "Search the guides and check their source and review date."],
+      preferences: ["#preferences-form", "Your workspace, your preferences", "Choose your language, workspace and assistance settings. AI privacy controls are available under AI & Privacy."],
+    };
+    const intro = pages[S.route[0]] || ["#main h1", "Tara is here to guide you", "Review this page's records and options. You remain in control of changes and payments."];
+    return cue("page:" + S.route.join("/"), intro[0], intro[1], intro[2]);
+
   }
 
   async function refreshHomeFocus(force = false) {
@@ -290,7 +301,7 @@ const guide = (() => {
       return;
     const renderId = S.renderId;
     try {
-      const data = await api("/dashboard");
+      const data = await api(dashboardEndpoint());
       const panel = $(".daily-checklist");
       if (S.renderId !== renderId || S.route[0] !== "home" || !panel) return;
       const previous = S.dashboard;
@@ -408,7 +419,7 @@ const guide = (() => {
     panel.hidden =
       !target ||
       $("#dialog").open ||
-      (current.alert && (paused || openAlert !== current.id));
+      Boolean(current.alert && (paused || openAlert !== current.id));
     panel.toggleAttribute(
       "data-urgent-alert",
       Boolean(current?.alert && !panel.hidden),
@@ -556,7 +567,7 @@ const guide = (() => {
     if (document.hidden || S.busy || $("#dialog").open || page !== "budget") return;
     try {
       if (section === "allocation") {
-        const data = await api("/dashboard");
+        const data = await api(dashboardEndpoint());
         if (JSON.stringify(data.allocation) !== JSON.stringify(S.dashboard?.allocation)) queueWorkspaceRefresh();
       }
       if (section === "goals") {

@@ -156,6 +156,7 @@ class AgentState(TypedDict, total=False):
     evidence: list
     sources: list
     analysis: dict
+    allow_model_questions: bool
 
 
 class AgentContext(TypedDict):
@@ -190,7 +191,7 @@ def route(state):
     match = next((topic for topic, pattern in PATTERNS if re.search(pattern, message, re.I)), None)
     if match:
         return {"topic": match, "routing": "rules"}
-    classified = classify_with_model(state["message"])
+    classified = classify_with_model(state["message"]) if state.get("allow_model_questions", True) else None
     return {"topic": classified or "fallback", "routing": "llm" if classified else "rules"}
 
 

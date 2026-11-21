@@ -117,3 +117,17 @@ test("opening a dialog hides the spotlight and restores it after closing", () =>
   app.update();
   assert.equal(app.query("#tour-spotlight").hidden, false);
 });
+
+test("Tara remains available after the tour and on the anonymous payment entry screen", () => {
+  const app = setup({"contextiq.tara-tour.v2": "seen"});
+  app.context.S.route = ["transparency"];
+  app.update();
+  assert.equal(app.query("#visual-guide").hidden, false);
+  app.context.S.csrf = "";
+  app.context.S.route = ["scan"];
+  app.update();
+  assert.equal(app.query("#visual-guide").hidden, false);
+  app.click("open");
+  assert.match(app.query("#visual-guide").innerHTML, /Your payment starts here/);
+  assert.match(app.query("#visual-guide").innerHTML, /never approves a payment/);
+});
