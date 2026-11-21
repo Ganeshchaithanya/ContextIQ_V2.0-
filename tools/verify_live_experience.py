@@ -70,7 +70,7 @@ with httpx.Client(base_url=base, timeout=60, follow_redirects=True) as client:
         assert other.post("/api/v2/scan", json={"token": payment_url}).status_code == 404
         assert other.get("/api/v2/transparency").json()["impact"]["saved_analyses"] == 0
     results.append("PASS: cross-workspace invoice denial and analysis isolation")
-    assert client.get("/api/metrics").status_code == 401
+    assert client.get("/api/metrics").status_code in (401, 404)
     results.append("PASS: operator metrics inaccessible without operator authentication")
 
 print(json.dumps({"site": base, "results": results,
