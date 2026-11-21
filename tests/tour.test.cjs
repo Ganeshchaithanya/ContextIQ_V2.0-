@@ -10,7 +10,7 @@ function setup(saved = {}, viewport = [1280, 900]) {
     const classes = new Set(), attributes = new Map(), children = new Map();
     return {
       hidden: false, open: false, innerHTML: "", textContent: "", attributes, classes, scrolled: 0,
-      style: {removeProperty(name) { delete this[name]; }},
+      style: {removeProperty(name) { delete this[name]; }, setProperty(name, value) { this[name] = value; }},
       classList: {add: name => classes.add(name), remove: name => classes.delete(name)},
       addEventListener(name, fn) { this[name] = fn; },
       setAttribute(name, value) { attributes.set(name, value); },
@@ -116,4 +116,33 @@ test("opening a dialog hides the spotlight and restores it after closing", () =>
   app.query("#dialog").open = false;
   app.update();
   assert.equal(app.query("#tour-spotlight").hidden, false);
+});
+
+test("Tara sizing persists, clamps invalid values and preserves tour navigation", () => {
+  const app = setup();
+  app.update();
+  app.click("size");
+  const panel = app.query("#visual-guide");
+  assert.match(panel.innerHTML, /aria-expanded="true"/);
+  for (const [key, value, expected] of [["width", "9999", "520px"], ["text", "15", "15px"], ["height", "-1", "35dvh"]]) {
+    panel.input({target: {dataset: {guideSize: key}, value}});
+    assert.equal(panel.style[`--tara-${key}`], expected);
+  }
+  assert.deepEqual(JSON.parse(app.storage.get("contextiq.tara-size.v1")), {width: 520, text: 15, height: 35});
+  app.click("tour-next");
+  assert.equal(app.context.S.route[0], "seller");
+  const mobile = setup(Object.fromEntries(app.storage), [320, 568]);
+  vm.runInContext("guide.startTour()", mobile.context);
+  assert.equal(mobile.query("#visual-guide").style["--tara-width"], "520px");
+  assert(parseFloat(mobile.query("#visual-guide").style.width) <= 296);
+});
+
+test("corrupt and null Tara preferences restore readable defaults", () => {
+  for (const saved of ["invalid JSON", '{"width":null,"text":"bad","height":""}']) {
+    const app = setup({"contextiq.tara-size.v1": saved});
+    app.update();
+    assert.equal(app.query("#visual-guide").style["--tara-width"], "360px");
+    assert.equal(app.query("#visual-guide").style["--tara-text"], "14px");
+    assert.equal(app.query("#visual-guide").style["--tara-height"], "65dvh");
+  }
 });

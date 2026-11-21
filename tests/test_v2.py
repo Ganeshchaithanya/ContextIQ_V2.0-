@@ -406,6 +406,85 @@ def test_qr_version_expiry_and_signature(client):
     assert client.post(f"/api/v2/invoices/{amount['id']}/authorize", json={"fingerprint": amount["fingerprint"], "version": 1, "authorized": True}).status_code == 409
 
 
+def test_mobile_qr_link_verifies_without_moving_money_and_blocks_tampering(client):
+    from app.config import settings
+    row = invoice(client, "cable")
+    token = row["qr_code"]
+    assert len(token) == 55
+    baseline = client.get("/api/v2/history").json()
+    link = (settings.app_url or settings.public_base_url).rstrip("/") + "/#/scan?code=" + token
+    for raw in [token, link, row["qr_token"]]:
+        result = client.post("/api/v2/scan", json={"token": raw})
+        assert result.status_code == 200, result.text
+        assert result.json()["invoice"]["id"] == row["id"]
+    assert client.get("/api/v2/history").json() == baseline
+    assert client.get(f"/api/v2/invoices/{row['id']}").json()["status"] == "open"
+    forged = token[:-1] + ("0" if token[-1] != "0" else "1")
+    for raw in [forged, "ciqr1.bad", "https://evil.example/#/scan?code=" + token,
+                link + "&code=" + token, link.replace("code=", "wrong=")]:
+        assert client.post("/api/v2/scan", json={"token": raw}).status_code == 422
+    with TestClient(app) as other:
+        assert other.post("/api/v2/scan", json={"token": token}).status_code == 401
+        other.headers["x-csrf-token"] = other.post("/api/v2/session", json={"persona": "freelancer"}).json()["csrf"]
+        assert other.post("/api/v2/scan", json={"token": token}).status_code == 404
+
+
+def test_mobile_qr_rejects_paid_cancelled_replaced_and_expired_invoices(client):
+    from datetime import UTC, datetime, timedelta
+    paid = invoice(client, "cable")
+    pay(client, paid)
+    assert client.post("/api/v2/scan", json={"token": paid["qr_code"]}).status_code == 409
+    cancelled = invoice(client, "mouse")
+    client.post(f"/api/v2/invoices/{cancelled['id']}/cancel")
+    assert client.post("/api/v2/scan", json={"token": cancelled["qr_code"]}).status_code == 409
+    replaced = invoice(client, "cable")
+    assert client.post("/api/v2/invoices", json={"previous_id": replaced["id"], "items": [{"product_id": "mouse", "quantity": 1}]}).status_code == 200
+    assert client.post("/api/v2/scan", json={"token": replaced["qr_code"]}).status_code == 409
+    expired = invoice(client, "cable")
+    with SessionLocal.begin() as db:
+        db.get(InvoiceSnapshot, expired["id"]).expires_at = datetime.now(UTC) - timedelta(seconds=1)
+    assert client.post("/api/v2/scan", json={"token": expired["qr_code"]}).status_code == 409
+
+
+def test_real_qr_encoder_decoder_roundtrip(client):
+    import base64
+    import io
+    import subprocess
+    from PIL import Image
+    import zxingcpp
+    row = invoice(client, "cable")
+    link = "https://context-iq-v2-0.vercel.app/#/scan?code=" + row["qr_code"]
+    script = "const qr=require('./app/static/qrcode.js')(0,'M');qr.addData(process.argv[1]);qr.make();process.stdout.write(qr.createDataURL(5,20));"
+    result = subprocess.run(["node", "-e", script, link], cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, check=True)
+    image = Image.open(io.BytesIO(base64.b64decode(result.stdout.split(",", 1)[1]))).convert("RGB")
+    decoded = zxingcpp.read_barcode(image)
+    assert decoded and decoded.text == link
+    for scale in (0.8, 1.5):
+        resized = image.resize((int(image.width * scale), int(image.height * scale)))
+        assert zxingcpp.read_barcode(resized).text == link
+
+
+def test_automation_evidence_is_private_and_chart_range_does_not_change_budget(client):
+    before = client.get("/api/v2/dashboard").json()
+    summary = before["automation_summary"]
+    assert summary["payment_authority"] == "human_only"
+    assert summary["completed_analyses"] == 0
+    assert summary["open_commitments"] == len(before["allocation"]["commitments"])
+    assert summary["savings_minor"] == before["allocation"]["savings_minor"]
+    assert summary["context_enabled"] is False and summary["voice_enabled"] is False
+    result = client.post("/api/v2/ask", json={"message": "How is my financial condition?"})
+    assert result.status_code == 200, result.text
+    assert client.get("/api/v2/dashboard").json()["automation_summary"]["completed_analyses"] == 1
+    for days in (7, 30, 90):
+        view = client.get(f"/api/v2/dashboard?days={days}").json()
+        assert view["allocation"] == before["allocation"]
+        assert view["finance"]["chart"][-1]["balance_minor"] == view["finance"]["balance_minor"]
+        assert len(view["finance"]["chart"]) == days
+    with TestClient(app) as other:
+        other.headers["x-csrf-token"] = other.post("/api/v2/session", json={"persona": "freelancer"}).json()["csrf"]
+        assert other.get("/api/v2/dashboard").json()["automation_summary"]["completed_analyses"] == 0
+
+
 def test_recovery_single_settlement_and_purchase_lifecycle(client):
     row = invoice(client)
     result = pay(client, row, True)

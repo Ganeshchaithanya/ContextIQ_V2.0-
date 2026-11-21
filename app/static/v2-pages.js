@@ -94,7 +94,7 @@ async function budgetPage() {
   }
   if (section === "forecast") {
     S.forecast = await api("/forecast");
-    return `${back("budget")}${head("Cash-flow Forecast")}<section class="panel"><h3>${esc(t("Next 30 days"))}</h3><div class="chart-wrap"><canvas id="forecast-chart" role="img" aria-label="Forecast from recorded commitments"></canvas><span class="chart-tip"></span></div><div class="notice">${esc(t(S.forecast.basis))}</div></section>`;
+    return `${back("budget")}${head("Cash-flow Forecast")}<section class="panel"><h3>${esc(t("Next 30 days"))}</h3><div class="chart-wrap"><canvas id="forecast-chart" tabindex="0" role="img" aria-label="Forecast from recorded commitments"></canvas><span class="chart-tip"></span></div><div class="notice">${esc(t(S.forecast.basis))}</div></section>`;
   }
   const kind = { goals: "goal", emi: "emi" }[section];
   if (!kind) throw new Error("Page not found");
@@ -274,6 +274,17 @@ async function render() {
   )
     .split("?")[0]
     .split("/");
+  if (S.route[0] === "scan") {
+    const incoming = new URLSearchParams(location.hash.split("?")[1] || "").get("code");
+    if (incoming) {
+      S.scanDraft = incoming.slice(0, 10000);
+      history.replaceState(null, "", "#/scan");
+    }
+    if (!S.csrf) {
+      $("#app").innerHTML = `<main id="main" class="payment-entry"><a class="brand" href="#/home">ContextIQ<b>.</b></a>${scanPage()}</main>`;
+      return;
+    }
+  }
   if (!S.csrf) return welcome();
   if (!S.profile.onboarded) return onboarding();
   if (S.route[0] === "store") return window.location.assign("/store");
@@ -310,7 +321,7 @@ async function render() {
       drawChart("forecast-chart", S.forecast.points);
     if ($("#qr-image")) {
       const qr = qrcode(0, "M");
-      qr.addData(S.invoice.qr_token);
+      qr.addData(paymentEntryLink(S.invoice));
       qr.make();
       $("#qr-image").innerHTML = qr.createImgTag(4, 8, "Invoice QR");
     }

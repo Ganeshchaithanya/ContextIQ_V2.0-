@@ -120,9 +120,9 @@ def test_approval_is_atomic_and_refund_is_bound_to_exact_amount(client):
     def approve(_):
         with SessionLocal.begin() as db:
             return check(db, actor="test-seller", action="refund", case=db.get(Case, ident), approval_token=token, amount=10).decision
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(approve, range(2)))
-    assert sorted(results) == ["allow", "deny"]
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        results = list(pool.map(approve, range(16)))
+    assert results.count("allow") == 1 and results.count("deny") == 15
 
 
 def test_unknown_financial_states_fail_closed(client):
