@@ -207,7 +207,7 @@ def build_forecast(db, owner: str, horizon: int, delay_days: int = 0, customer_i
         balance = row.total_minor - row.amount_paid_minor
         customer = customers[row.customer_id]
         shift = delay_days if customer_id is None or row.customer_id == customer_id else 0
-        expected = max(row.due_date + timedelta(days=customer.usual_payment_delay_days + shift), as_of)
+        expected = max(row.due_date + timedelta(days=customer.usual_payment_delay_days), as_of) + timedelta(days=shift)
         offset = (expected - as_of).days
         if offset < horizon:
             inflows[offset] += balance

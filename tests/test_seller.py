@@ -200,6 +200,19 @@ def test_what_if_later_payment_never_raises_minimum_balance(client):
     assert late["scenario"]["min_balance_minor"] < late["baseline"]["min_balance_minor"]
 
 
+def test_delay_scenario_postpones_already_overdue_receipts(client):
+    customer = make_customer(client)
+    inv = make_invoice(client, customer["id"], [{"description": "Completed work", "unit_price_minor": 100000}],
+                       due_offset=-30, issue_offset=-40)
+    client.post(f"/api/v2/seller/invoices/{inv['id']}/send")
+    client.post("/api/v2/seller/bills", json={
+        "name": "Rent", "amount_minor": 50000, "due_date": (today() + timedelta(days=3)).isoformat(),
+    })
+    result = client.get(f"/api/v2/seller/forecast/what-if?delay_days=15&customer_id={customer['id']}").json()
+    assert result["baseline"]["first_negative_date"] is None
+    assert result["scenario"]["first_negative_date"] == (today() + timedelta(days=3)).isoformat()
+
+
 def test_reminder_contains_upi_link_with_balance(client):
     client.put("/api/v2/seller/settings", json={"upi_vpa": "meera.designs@okaxis", "payee_name": "Meera Design Studio", "opening_balance_minor": 0})
     customer = make_customer(client, "Ravi Kumar")

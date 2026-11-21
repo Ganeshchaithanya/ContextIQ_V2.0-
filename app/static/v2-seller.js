@@ -328,6 +328,7 @@
         <section class="panel"><div class="section-top"><h2>${esc(t("Projected balance"))}</h2><div class="seller-chips" role="group" aria-label="Forecast length">${chips}</div></div>
           ${forecastChart(series, `Projected balance for ${horizon} days, lowest ${rupee(minDay.balance_minor)}`)}
           <p class="field-hint">Lowest point ${rupee(minDay.balance_minor)} on ${longDate(minDay.date)}.</p>
+          <p class="field-hint">Receipts use invoice due dates and each client's usual delay. Already overdue receipts are assumed today. Use the delay scenario to test what happens if collection takes longer.</p>
           <details><summary>Day-by-day figures</summary><div class="table-wrap"><table class="seller-table"><caption>Projected balance by day</caption><thead><tr><th scope="col">Date</th><th scope="col" class="num">Receipts</th><th scope="col" class="num">Bills</th><th scope="col" class="num">Balance</th></tr></thead><tbody>${rows}</tbody></table></div></details>
         </section>
         <section class="panel seller-form" aria-labelledby="seller-whatif-title"><h2 id="seller-whatif-title">${esc(t("What if a client pays late?"))}</h2>
