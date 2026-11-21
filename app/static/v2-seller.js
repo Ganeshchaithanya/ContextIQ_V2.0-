@@ -73,7 +73,7 @@
     if (item.reminder) {
       buttons.push(`<button type="button" class="btn small green" data-seller-action="copy-alert" data-id="${index}">Copy reminder</button>`);
       if (item.reminder.whatsapp_url)
-        buttons.push(`<a class="btn small ghost" href="${esc(item.reminder.whatsapp_url)}" target="_blank" rel="noopener">Send on WhatsApp</a>`);
+        buttons.push(`<a class="btn small ghost" href="${esc(item.reminder.whatsapp_url)}" target="_blank" rel="noopener">Open WhatsApp</a>`);
     }
     if (item.kind === "cash_gap") buttons.push(`<a class="btn small white" href="#/seller/forecast">See cash forecast</a>`);
     if (item.kind === "bill_due") buttons.push(`<a class="btn small white" href="#/seller/bills">View bills</a>`);
@@ -179,16 +179,16 @@
   function paymentForm(invoice) {
     const balance = invoice.balance_minor;
     return `<form id="seller-payment-form" class="panel seller-form" data-invoice-id="${esc(invoice.id)}" data-request-id="${crypto.randomUUID()}">
-      <h2>Record payment</h2>
-      <p class="field-hint">Balance due ${rupee(balance)}. Record only money you have actually received.</p>
+      <h2>Add a received payment</h2>
+      <p class="field-hint">The client still owes ${rupee(balance)}. Add a payment here after you receive it.</p>
       <div class="seller-two">
         <div class="form-field"><label for="seller-pay-amount">Amount received (₹)</label><input id="seller-pay-amount" name="amount" type="number" min="0.01" max="${(balance / 100).toFixed(2)}" step="0.01" value="${(balance / 100).toFixed(2)}" required></div>
-        <div class="form-field"><label for="seller-pay-method">How it was paid</label><select id="seller-pay-method" name="method">${PAYMENT_METHODS.map(([k, l]) => `<option value="${k}">${esc(t(l))}</option>`).join("")}</select></div>
-        <div class="form-field"><label for="seller-pay-ref">UPI reference (optional)</label><input id="seller-pay-ref" name="reference" maxlength="80" autocomplete="off"></div>
-        <div class="form-field"><label for="seller-pay-date">Received on</label><input id="seller-pay-date" name="received_on" type="date" value="${todayIso()}" required></div>
+        <div class="form-field"><label for="seller-pay-method">Payment method</label><select id="seller-pay-method" name="method">${PAYMENT_METHODS.map(([k, l]) => `<option value="${k}">${esc(t(l))}</option>`).join("")}</select></div>
+        <div class="form-field"><label for="seller-pay-ref">Payment reference (optional)</label><input id="seller-pay-ref" name="reference" maxlength="80" autocomplete="off"></div>
+        <div class="form-field"><label for="seller-pay-date">Date received</label><input id="seller-pay-date" name="received_on" type="date" value="${todayIso()}" required></div>
       </div>
       <p id="seller-pay-error" class="seller-error" role="alert" hidden></p>
-      <div class="actions"><button type="submit" class="btn green">Record payment</button></div>
+      <div class="actions"><button type="submit" class="btn green">Save payment</button></div>
     </form>`;
   }
 
@@ -204,9 +204,10 @@
     const tone = (key, label) => `<button type="button" class="btn small ${reminder.tone === key ? "green" : "white"}" aria-pressed="${reminder.tone === key}" data-seller-action="set-tone" data-id="${esc(invoiceId)}" data-tone="${key}">${esc(t(label))}</button>`;
     return `<h2 id="seller-reminder-title">${esc(t("Payment reminder"))}</h2>
       <div class="seller-toggle-row" role="group" aria-label="Reminder tone">${tone("friendly", "Friendly")}${tone("firm", "Firm")}</div>
-      <label for="seller-reminder-text">Reminder text (copy and send)</label>
-      <textarea id="seller-reminder-text" class="seller-reminder-text" rows="8">${esc(reminder.text)}</textarea>
-      <div class="actions"><button type="button" class="btn small green" data-seller-action="copy-reminder">Copy reminder</button>${reminder.whatsapp_url ? `<a class="btn small white" href="${esc(reminder.whatsapp_url)}" target="_blank" rel="noopener">Send on WhatsApp</a>` : ""}</div>`;
+      <label for="seller-reminder-text">Message to your client</label>
+      <p class="field-hint">Edit the message, then copy it or open WhatsApp to send it.</p>
+      <textarea id="seller-reminder-text" class="seller-reminder-text" rows="12">${esc(reminder.text)}</textarea>
+      <div class="actions"><button type="button" class="btn small green" data-seller-action="copy-reminder">Copy message</button><button type="button" class="btn small white" data-seller-action="copy-upi" data-id="${esc(invoiceId)}">Copy UPI payment link</button>${reminder.whatsapp_url ? `<a class="btn small white" href="${esc(reminder.whatsapp_url)}" target="_blank" rel="noopener">Open WhatsApp</a>` : ""}</div>`;
   }
 
   async function invoiceDetail(id) {
@@ -217,7 +218,7 @@
     if (isOpen) {
       try {
         const reminder = await api(`/seller/invoices/${enc(id)}/reminder?tone=friendly`);
-        side += `<section class="panel seller-qr-panel"><h2>${esc(t("Collect by UPI"))}</h2><div class="seller-qr" role="img" aria-label="UPI QR for ${rupee(reminder.amount_minor)}">${upiQr(reminder)}</div><p class="field-hint">${reminder.demo_recipient ? "Sample UPI recipient. Set your own address in Business settings before sharing a payment request." : `Review recipient and amount in your UPI app before paying ${rupee(reminder.amount_minor)}.`}</p></section>`;
+        side += `<section class="panel seller-qr-panel"><h2>${esc(t("Client payment QR"))}</h2><div class="seller-qr" role="img" aria-label="UPI QR for ${rupee(reminder.amount_minor)}">${upiQr(reminder)}</div><p class="field-hint">${reminder.demo_recipient ? "This QR uses a demo UPI ID. Add your UPI ID in Business settings before sharing it." : `Review recipient and amount in your UPI app before paying ${rupee(reminder.amount_minor)}.`}</p></section>`;
         side += `<section class="panel seller-reminder" aria-labelledby="seller-reminder-title"><div id="seller-reminder-panel">${reminderPanel(reminder, invoice.id)}</div></section>`;
       } catch (error) {
         side += `<section class="panel"><h2>${esc(t("Payment reminder"))}</h2><p class="seller-error" role="alert">${esc(error.message)}</p></section>`;
@@ -399,6 +400,11 @@
     }
   }
   const ACTIONS = {
+    "copy-upi": async (control) => {
+      const reminder = await api(`/seller/invoices/${enc(control.dataset.id)}/reminder`);
+      await copyText(reminder.upi_link);
+      toast("UPI payment link copied");
+    },
     "copy-invoice": async (control) => {
       const invoice = await api(`/seller/invoices/${enc(control.dataset.id)}`);
       await copyText(invoice.share_text);

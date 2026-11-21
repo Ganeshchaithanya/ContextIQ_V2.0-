@@ -306,7 +306,9 @@ def test_reminder_contains_upi_link_with_balance(client):
     assert query["cu"] == ["INR"]
     assert query["tn"] == [f"Invoice {invoice['number']}"]
     assert reminder["amount_minor"] == 200000
-    assert link in reminder["text"] and "₹2,000.00" in reminder["text"]
+    assert "meera.designs@okaxis" in reminder["text"] and "₹2,000.00" in reminder["text"]
+    assert link not in reminder["text"] and "\n\n" in reminder["text"]
+    assert "Payment is due on" in reminder["text"]
 
 
 def test_freelancer_demo_seed(client):

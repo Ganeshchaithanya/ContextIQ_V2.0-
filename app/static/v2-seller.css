@@ -108,7 +108,7 @@
 .seller-qr { display: inline-block; background: #fff; padding: 10px; border-radius: 16px; border: 1px solid var(--line); }
 .seller-qr img { display: block; max-width: 220px; height: auto; }
 .seller-toggle-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.seller-reminder-text { min-height: 180px; font-size: 14px; line-height: 1.5; resize: vertical; }
+.seller-page .seller-reminder-text { min-height: 280px; font-size: 15px; line-height: 1.65; resize: vertical; }
 
 /* Forecast */
 .seller-warning { margin-bottom: 0; }

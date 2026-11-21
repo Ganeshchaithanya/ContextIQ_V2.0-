@@ -295,17 +295,24 @@ def reminder_for(db, owner: str, row, tone: str, as_of: date) -> dict:
                 f"&am={amount}&cu=INR&tn={tn}")
     work = db.scalar(select(SellerInvoiceLine.description).where(SellerInvoiceLine.invoice_id == row.id).limit(1)) or "your project"
     due = row.due_date.strftime("%d %b %Y")
-    timing = f"was due on {due}" if days else f"is due on {due}"
-    if tone == "firm":
-        overdue_phrase = f"is {days} days overdue" if days else f"is due on {due}"
-        text = (f"Hello {customer.name}, invoice {row.number} for {rupees(balance)} {overdue_phrase} (due {due}). "
-                f"Please clear the balance at the earliest using this UPI link: {upi_link}\n"
-                f"If anything is blocking the payment, reply here and we will sort it out. Thank you, {cfg['payee_name']}")
+    if days:
+        timing = f"Payment was due on {due} and is now {days} {'day' if days == 1 else 'days'} overdue."
+    elif row.due_date == as_of:
+        timing = f"Payment is due today, {due}."
     else:
-        first_name = customer.name.split()[0]
-        text = (f"Hi {first_name}, hope you're doing well! A friendly reminder that invoice {row.number} for {rupees(balance)} "
-                f"({work}) {timing}. You can pay via UPI: {upi_link}\n"
-                f"Thank you, {cfg['payee_name']}")
+        timing = f"Payment is due on {due}."
+    if tone == "firm":
+        request = ("Please pay today or reply with the date you can pay." if days
+                   else "Please pay by the due date and let me know once you have paid.")
+    else:
+        request = ("Please let me know when you can pay. I am happy to help if you need any details." if days
+                   else "Please pay by the due date. Let me know if you need any details.")
+    text = (f"Hello {customer.name},\n\n"
+            f"Invoice {row.number} is for {work}.\n"
+            f"The amount still due is {rupees(balance)}.\n"
+            f"{timing}\n\n{request}\n\n"
+            f"You can pay {rupees(balance)} using your UPI app. Send it to {cfg['upi_vpa']}.\n\n"
+            f"Thank you,\n{cfg['payee_name']}")
     digits = "".join(ch for ch in customer.phone if ch.isdigit())
     whatsapp_url = None
     if digits:
