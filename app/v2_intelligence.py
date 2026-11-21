@@ -82,6 +82,7 @@ TEXT = {
     },
 }
 PATTERNS = [
+    ("overview", r"financ(?:ial|e).*?(?:condition|health|situation|position|overview|summary|status|doing)|(?:overall|analyse|analyze|assess|review).*?(?:financ|business|money)|how.*?(?:business|finances).*?(?:doing|look)|how.*doing financially|my finances|money situation|वित्तीय स्थिति|आर्थिक स्थिति|ಆರ್ಥಿಕ ಸ್ಥಿತಿ"),
     ("safety", r"scam|fraud|suspicious|urgent|धोखा|ठगी|ವಂಚನೆ|ಮೋಸ"),
     ("emi", r"emi|installment|किस्त|किश्त|ಕಂತು"),
     ("afford", r"afford|buy|headphone|खरीद|खरीदना|खर्च कर|ಖರೀದಿಸ|ಹೆಡ್|ಸಾಧ್ಯ"),
@@ -101,7 +102,7 @@ MODEL_CALLS = deque()
 MODEL_LOCK = Lock()
 INTENT_SYSTEM = (
     'Classify the demo finance question. Return JSON with exactly one key, "topic". '
-    'Use balance (available funds), budget (spending or allocations), bills (due bills), '
+    'Use overview (overall financial condition, health or analysis), balance (available funds), budget (spending or allocations), bills (due bills), '
     'focus (what to do first), afford (whether a purchase fits), payment (status or recovery), '
     'purchase (delivery, warranty, replacement or refund), emi (installments), goal (savings), '
     'notices (messages), safety (fraud), greeting, blocked (request to move money), '
@@ -154,6 +155,7 @@ class AgentState(TypedDict, total=False):
     destination: str
     evidence: list
     sources: list
+    analysis: dict
 
 
 def classify_with_model(message: str) -> str | None:
@@ -205,6 +207,11 @@ def explain(state):
                     "title": article["source_title"], "url": article["source_url"],
                     "reviewed_on": article["reviewed_on"], "needs_review": article["needs_review"],
                 }]}
+    if topic == "overview":
+        from .v2_analysis import financial_analysis, overview_answer
+        analysis = financial_analysis(db, uid, topic)
+        return {"answer": overview_answer(analysis), "destination": "#/budget/allocation",
+                "evidence": ["authorized_ledger", "recorded_obligations"], "analysis": analysis}
     prefs = db.get(Personalization, uid).data
     if prefs.get("persona") == "freelancer" and topic not in (
             "budget", "afford", "payment", "purchase", "goal", "emi", "safety", "blocked"):
@@ -284,10 +291,19 @@ def explain(state):
     return {"topic": topic, "answer": template[topic].format(**facts), "destination": destination, "evidence": evidence}
 
 
+def support(state):
+    if state.get("analysis") or state["topic"] in ("knowledge", "blocked", "safety", "greeting", "fallback"):
+        return {}
+    from .v2_analysis import financial_analysis
+    return {"analysis": financial_analysis(state["db"], state["user_id"], state["topic"])}
+
+
 graph = StateGraph(AgentState)
 graph.add_node("route", route)
 graph.add_node("explain", explain)
+graph.add_node("support", support)
 graph.set_entry_point("route")
 graph.add_edge("route", "explain")
-graph.add_edge("explain", END)
+graph.add_edge("explain", "support")
+graph.add_edge("support", END)
 supervisor = graph.compile()

@@ -981,6 +981,7 @@ th {
     border-radius: 10px;
     font-size: 12px;
     padding: 13px 16px;
+    color: var(--black);
 }
 .message {
     max-width: 85%;
@@ -997,16 +998,49 @@ th {
     color: white;
 }
 .message.assistant {
-    background: white;
-    border: 1px solid var(--line);
+    background: transparent;
+    border: 0;
+    border-top: 1px solid #cbd3c3;
+    border-radius: 0;
+    padding: 24px 0;
+    max-width: 100%;
+    white-space: normal;
 }
+.chat .chat-intro { text-align: left; }
+.chat .chat-intro .ask-symbol { color: #557b2b; }
+.chat .prompts { justify-content: flex-start; gap: 10px; }
+.chat .prompts button { background: transparent; color: #34472a; border: 1px solid #bcccae; border-radius: 999px; padding: 9px 15px; white-space: normal; text-align: left; }
+.chat .prompts button:hover { background: #e5efd9; }
+.chat .message.user { background: #e3ebdb; color: #22331a; border-radius: 14px 14px 2px 14px; padding: 13px 18px; width: fit-content; }
+.answer-byline { display: flex; gap: 9px; align-items: center; color: #314724; font-size: 13px; font-weight: 700; margin-bottom: 18px; }
+.answer-byline > span:last-child { color: #65735a; font-size: 11px; font-weight: 400; margin-left: auto; }
+.answer-copy { white-space: pre-wrap; font-size: 15px; line-height: 1.9; overflow-wrap: anywhere; }
+.answer-context { border-left: 3px solid #92b56d; padding-left: 16px; margin-top: 24px; color: #43533a; }
+.answer-context p { margin: 8px 0; }
+.answer-details { margin-top: 24px; border-block: 1px solid #cbd3c3; }
+.answer-details > summary { cursor: pointer; padding: 15px 0; color: #254416; font-weight: 650; }
+.answer-details > summary span { color: #66765c; font-size: 12px; font-weight: 400; margin-left: 12px; }
+.answer-proof { padding-bottom: 20px; overflow-wrap: anywhere; }
+.answer-proof h3 { font-size: 16px; margin: 26px 0 12px; }
+.answer-proof h4 { font-size: 13px; margin: 12px 0 4px; }
+.answer-proof p { margin: 6px 0; }
+.answer-snapshot, .answer-basis { color: #63715a; font-size: 12px; }
+.answer-calculation { padding: 12px 0; border-bottom: 1px dashed #c9d2c1; font-variant-numeric: tabular-nums; }
+.answer-calculation strong { font-size: 12px; color: #4f6242; }
+.answer-records { list-style: none; padding: 0; margin: 0; }
+.answer-records li { padding: 13px 0; border-bottom: 1px solid #d7dfd0; }
+.answer-records li > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 18px; }
+.answer-records a, .answer-source-link { color: #355b1b; text-underline-offset: 4px; }
+.answer-records p { color: #617058; font-size: 12px; }
+.answer-records strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.answer-proof ul:not(.answer-records) { padding-left: 20px; color: #526248; }
 .message .actions {
     margin-top: 15px;
 }
 .chat-form {
     position: sticky;
     bottom: 20px;
-    background: white;
+    background: #e8efdf;
     border: 1px solid #d4dbcb;
     box-shadow: 0 10px 40px #1115110d;
     border-radius: 16px;
@@ -1017,6 +1051,7 @@ th {
 }
 .chat-form input {
     border: 0;
+    background: transparent;
     flex: 1;
     min-width: 0;
 }

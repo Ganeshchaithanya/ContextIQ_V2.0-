@@ -1386,6 +1386,7 @@ def ask(body: AskIn, current=Depends(session), db=Depends(db_dep)):
                                 "workspace_id": current.workspace_id, "language": prefs.get("language", "en")})
     output = {key: result[key] for key in ("topic", "answer", "destination", "evidence", "routing")}
     output["sources"] = result.get("sources", [])
+    output["analysis"] = result.get("analysis")
     db.add(PlanningRecord(user_id=current.buyer_id, kind="conversation", title=body.message[:100], data={"question": body.message, **output, "at": now().isoformat()}))
     return output
 

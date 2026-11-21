@@ -38,6 +38,51 @@ def make_customer(client, name="Test Client Pvt Ltd", delay=0, phone="+91 90000 
     return response.json()
 
 
+@pytest.mark.parametrize("question", ["how's my financial conditions", "How is my financial health?", "How am I doing financially?"])
+def test_financial_overview_has_reproducible_analysis(client, question, monkeypatch):
+    from app import v2_intelligence
+
+    new_session(client, "freelancer")
+    monkeypatch.setattr(v2_intelligence.llm, "complete", lambda *args, **kwargs: pytest.fail("Known overview must work without a model call"))
+    before = client.get("/api/v2/dashboard").json()
+    response = client.post("/api/v2/ask", json={"message": question})
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["topic"] == "overview" and result["routing"] == "rules"
+    analysis, metrics = result["analysis"], result["analysis"]["metrics"]
+    assert metrics["balance_minor"] == before["finance"]["balance_minor"]
+    assert metrics["opening_minor"] + metrics["income_minor"] - metrics["expense_minor"] == metrics["balance_minor"]
+    assert metrics["balance_minor"] - metrics["committed_minor"] - metrics["reserved_minor"] - metrics["savings_minor"] == metrics["flexible_minor"]
+    assert metrics["flexible_minor"] == before["flexible_minor"]
+    forecast = analysis["forecast"]
+    assert forecast["opening_minor"] + forecast["receipts_minor"] - forecast["bills_minor"] == forecast["ending_balance_minor"]
+    assert "not cash you can spend yet" in result["answer"]
+    assert "Suggested next step" in result["answer"] and len(result["answer"].split("\n\n")) >= 4
+    assert all(record["destination"].startswith("#/") for record in analysis["records"])
+    assert analysis["assumptions"] and analysis["limitations"] and analysis["as_of"]
+    saved = client.get("/api/v2/ask").json()[-1]
+    assert saved["analysis"] == analysis
+
+
+def test_overview_evidence_is_owned_and_recalculates_after_receipt(client):
+    new_session(client, "freelancer")
+    customer = make_customer(client, "Evidence isolation QA client")
+    invoice = make_invoice(client, customer["id"], [{"description": "Design work", "quantity": 1, "unit_price_minor": 100000}], due_offset=-4, issue_offset=-10)
+    assert client.post(f"/api/v2/seller/invoices/{invoice['id']}/send").status_code == 200
+    query = {"message": "Review my financial situation"}
+    before = client.post("/api/v2/ask", json=query).json()["analysis"]
+    assert any(customer["name"] in row["label"] for row in before["records"])
+    assert pay(client, invoice["id"], 25000).status_code == 200
+    after = client.post("/api/v2/ask", json=query).json()["analysis"]
+    assert after["metrics"]["balance_minor"] == before["metrics"]["balance_minor"] + 25000
+    assert after["metrics"]["receivable_minor"] == before["metrics"]["receivable_minor"] - 25000
+    record = next(row for row in after["records"] if invoice["id"] in row["destination"])
+    assert record["value"] == "₹750.00" and "₹250.00" in record["detail"]
+    new_session(client, "freelancer")
+    other = client.post("/api/v2/ask", json=query).json()["analysis"]
+    assert not any(customer["name"] in row["label"] or invoice["id"] in row["destination"] for row in other["records"])
+
+
 def make_invoice(client, customer_id, lines, due_offset=14, issue_offset=0):
     body = {"customer_id": customer_id, "lines": lines,
             "issue_date": (today() + timedelta(days=issue_offset)).isoformat(),
