@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from . import briefcase as bc
 from . import orchestrator
@@ -42,6 +42,16 @@ from .security import gateway, sentra
 
 @asynccontextmanager
 async def lifespan(_app):
+    from .observability import configure_logging
+    configure_logging()
+    if settings.auth_mode not in ("demo", "oidc"):
+        raise RuntimeError("Unknown identity mode")
+    if settings.auth_mode == "oidc" and (settings.paypal_env != "mock" or __import__("os").getenv("CONTEXTIQ_LEGACY_TEST_AUTH") == "1"):
+        raise RuntimeError("Verified-account mode forbids legacy test identity and real payment execution")
+    if settings.auth_mode == "oidc" and (
+            not settings.oidc_issuer.startswith("https://") or not settings.oidc_jwks_url.startswith("https://")
+            or not settings.oidc_audience or len(settings.server_secret) < 32):
+        raise RuntimeError("Verified identity requires a pinned HTTPS issuer, audience, JWKS and strong server secret")
     if settings.hosted_demo and (settings.paypal_env != "mock" or len(settings.server_secret) < 32):
         raise RuntimeError("Hosted demo requires the mock payment provider and a generated SERVER_SECRET")
     init_db()
@@ -49,25 +59,45 @@ async def lifespan(_app):
 
     ensure_seed()
     import threading
-    from .v2 import observation_worker
-    from .v2_watch import price_watch_worker
+    from .worker import run as durable_worker
     stop = threading.Event()
-    worker = threading.Thread(target=observation_worker, args=(stop,), daemon=True)
-    worker.start()
-    price_worker = threading.Thread(target=price_watch_worker, args=(stop,), daemon=True)
-    price_worker.start()
+    worker = None
+    if settings.worker_mode == "embedded":
+        worker = threading.Thread(target=durable_worker, args=(stop,), daemon=True)
+        worker.start()
     try:
         yield
     finally:
         stop.set()
-        worker.join(timeout=2)
-        price_worker.join(timeout=2)
+        if worker:
+            worker.join(timeout=25)
 
 
 app = FastAPI(title="ContextIQ", version="0.2.0", lifespan=lifespan,
               docs_url=None if settings.hosted_demo else "/docs",
               redoc_url=None if settings.hosted_demo else "/redoc",
               openapi_url=None if settings.hosted_demo else "/openapi.json")
+from .reliability import CircuitOpen, CapacityExceeded
+
+
+@app.exception_handler(CircuitOpen)
+async def dependency_unavailable(request, error):
+    return JSONResponse({"detail": "A dependency is temporarily unavailable. Check the original record before retrying."},
+                        status_code=503, headers={"Retry-After": "30"})
+
+
+@app.exception_handler(CapacityExceeded)
+async def dependency_busy(request, error):
+    return JSONResponse({"detail": "The service is busy. Please retry shortly."}, status_code=429,
+                        headers={"Retry-After": "5"})
+
+
+from .finance_state import InvalidStateTransition
+
+
+@app.exception_handler(InvalidStateTransition)
+async def financial_state_conflict(request, error):
+    return JSONResponse({"detail": "Financial status changed. Refresh the original record before continuing."}, status_code=409)
 from .v2 import access_control, router as v2_router
 from . import v2_business  # Registers business routes on the same session-scoped router.
 from . import v2_seller  # Registers seller back-office routes (customers, invoices, forecast) on the same router.
@@ -143,7 +173,7 @@ class CartIn(BaseModel):
     page_url: str = ""
     channel: str = "online"
     seller_id: str | None = None
-    purpose: str | None = None  # personal | business — chosen automatically, switchable before paying
+    purpose: str | None = None  # personal | business â€” chosen automatically, switchable before paying
 
 
 class ChatIn(BaseModel):
@@ -196,15 +226,24 @@ def paypal_cancel(case: str):
 @app.middleware("http")
 async def _metrics(request: Request, call_next):
     import time
+    import uuid
 
     sid = request.headers.get("x-session-id", "")
     if sid in BLOCKED_SESSIONS and request.url.path.startswith("/api/") and request.method == "GET":
         kind = "cases" if "cases" in request.url.path else "balance" if "budget" in request.url.path else "message"
         return JSONResponse(sentra.decoy_response(kind))
+    # Assign a request-ID for trace correlation. Honour one from the client if provided.
+    import re
+    supplied = request.headers.get("x-request-id", "")
+    request_id = supplied if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", supplied) else uuid.uuid4().hex
+    request.state.request_id = request_id
     t0 = time.time()
     resp = await call_next(request)
     METRICS["requests"] += 1
     METRICS["latency_ms"] += (time.time() - t0) * 1000
+    resp.headers["X-Request-Id"] = request_id
+    import logging
+    logging.getLogger("contextiq.requests").info(json.dumps({"request_id": request_id, "method": request.method, "status": resp.status_code, "duration_ms": round((time.time() - t0) * 1000, 2)}))
     return resp
 
 
@@ -216,10 +255,108 @@ def config():
             "reset_allowed": settings.paypal_env == "mock"}
 
 
+@app.get("/health/live", include_in_schema=False)
+def liveness():
+    return {"status": "alive"}
+
+
+@app.get("/health/ready", include_in_schema=False)
+@app.get("/api/health", include_in_schema=False)
+def health():
+    from sqlalchemy import text
+    from .models import WorkerHeartbeat
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+            if db.execute(text("SELECT version_num FROM alembic_version")).scalar() != "20261121_01":
+                raise RuntimeError("Schema version mismatch")
+            if settings.worker_mode in ("embedded", "external"):
+                heartbeat = db.get(WorkerHeartbeat, "scheduler")
+                if not heartbeat:
+                    raise RuntimeError("Worker heartbeat missing")
+                stamp = heartbeat.at.replace(tzinfo=UTC) if heartbeat.at.tzinfo is None else heartbeat.at
+                if (datetime.now(UTC) - stamp).total_seconds() > 180:
+                    raise RuntimeError("Worker heartbeat stale")
+    except Exception:
+        return JSONResponse({"status": "not_ready"}, status_code=503)
+    return {"status": "ready"}
+
+
+@app.get("/api/metrics", include_in_schema=False)
+def metrics(db=Depends(db_dep, scope="function")):
+    """Operational metrics for monitoring. No credentials are included.
+
+    Returns:
+      - request counts and average latency
+      - LLM call counts, token usage, error rate
+      - circuit breaker states for PayPal and LLM
+      - outbox queue depth (unpublished entries, dead letters)
+      - cache hit rate
+    """
+    from .intelligence import llm, cache as cache_mod
+    from .reliability import all_circuit_status
+    from .outbox import dead_letters
+    from sqlalchemy import text as _text
+
+    total_requests = METRICS["requests"]
+    avg_latency = round(METRICS["latency_ms"] / total_requests, 1) if total_requests else 0.0
+
+    # Outbox queue depth
+    try:
+        pending = db.scalar(_text("SELECT COUNT(*) FROM outbox WHERE published_at IS NULL AND attempts < max_attempts"))
+        dead = db.scalar(_text("SELECT COUNT(*) FROM outbox WHERE published_at IS NULL AND attempts >= max_attempts"))
+    except Exception:
+        pending = dead = -1
+
+    from .models import OutboxEntry, WebhookInboxEntry, WorkerHeartbeat
+    oldest_job = db.scalar(select(func.min(OutboxEntry.created_at)).where(OutboxEntry.published_at.is_(None)))
+    inbox_pending = db.scalar(select(func.count()).select_from(WebhookInboxEntry).where(WebhookInboxEntry.processed_at.is_(None)))
+    oldest_inbox = db.scalar(select(func.min(WebhookInboxEntry.received_at)).where(WebhookInboxEntry.processed_at.is_(None)))
+    heartbeat = db.get(WorkerHeartbeat, "scheduler")
+    def age(stamp):
+        if stamp is None:
+            return None
+        return max(0, int((datetime.now(UTC) - (stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC))).total_seconds()))
+
+    return {
+        "requests": {"total": total_requests, "avg_latency_ms": avg_latency},
+        "llm": llm.METER,
+        "cache": cache_mod.cache.stats(),
+        "circuits": all_circuit_status(),
+        "outbox": {"pending": pending, "dead_letters": dead, "oldest_age_seconds": age(oldest_job)},
+        "webhooks": {"pending": inbox_pending, "oldest_age_seconds": age(oldest_inbox)},
+        "worker": {"mode": settings.worker_mode, "heartbeat_age_seconds": age(heartbeat.at) if heartbeat else None},
+        "models": legacy_metrics(db)["models"],
+    }
+
+
 @app.get("/api/users")
 def users(db=Depends(db_dep, scope="function")):
     return [{"id": u.id, "name": u.name, "role": u.role, "business_name": u.business_name}
             for u in db.scalars(select(User)).all()]
+
+
+@app.get("/api/operations/dead-letters", include_in_schema=False)
+def failed_jobs():
+    from .outbox import dead_letters
+    return dead_letters()
+
+
+@app.post("/api/operations/jobs/{ident}/retry", include_in_schema=False)
+def retry_failed_job(ident: str, db=Depends(db_dep, scope="function")):
+    from .models import OutboxEntry
+    row = db.scalar(select(OutboxEntry).where(OutboxEntry.id == ident).with_for_update())
+    if not row:
+        raise HTTPException(404, "Job not found")
+    lease = row.lease_until
+    if lease and (lease if lease.tzinfo else lease.replace(tzinfo=UTC)) > datetime.now(UTC):
+        raise HTTPException(409, "A worker still owns this job")
+    if row.published_at is not None or row.attempts < row.max_attempts:
+        raise HTTPException(409, "Only dead-letter jobs can be retried")
+    row.attempts, row.error, row.available_at = 0, None, datetime.now(UTC)
+    row.lease_token = row.lease_until = None
+    db.add(AuditLog(actor="operator", action="retry_background_job", request={"job_id": row.id}, verdict="allow", reasons=["Operator retry"]))
+    return {"ok": True}
 
 
 @app.post("/api/chat")
@@ -274,7 +411,14 @@ def checkout(body: CartIn, user: User = Depends(user_dep), db=Depends(db_dep, sc
 
 @app.post("/api/cases/{case_id}/capture")
 def capture(case_id: str, body: CaptureIn, user: User = Depends(user_dep), db=Depends(db_dep, scope="function")):
-    r = commerce.complete_payment(db, user.id, case_id, body.approval_token, body.step_up_code, body.signals)
+    from .reliability import capture_limiter, CircuitOpen, CapacityExceeded
+    try:
+        with capture_limiter:
+            r = commerce.complete_payment(db, user.id, case_id, body.approval_token, body.step_up_code, body.signals)
+    except CapacityExceeded:
+        raise HTTPException(429, "Too many concurrent capture requests. Retry in a moment.")
+    except CircuitOpen as exc:
+        raise HTTPException(503, str(exc))
     if r.get("ok"):
         _after_paid(db, user.id, case_id)
     return r
@@ -327,7 +471,7 @@ def bill_checkout(bill_id: str, user: User = Depends(user_dep), db=Depends(db_de
     o = db.get(Obligation, bill_id)
     if not o or o.owner_id != user.id or o.status != "open":
         raise HTTPException(404, "bill not found")
-    payee = o.title.split(" — ")[0].replace(" bill", "").replace(" renewal", "")
+    payee = o.title.split(" â€” ")[0].replace(" bill", "").replace(" renewal", "")
     out = commerce.start_checkout(db, user.id, merchant=payee, items=[{"name": o.title, "unit_price": o.amount, "quantity": 1}],
                                   currency=settings.currency, channel="bill",
                                   purpose="business" if o.kind == "supplier_payment" else "personal")
@@ -393,7 +537,7 @@ def run_autonomous_sweep(db, user_id: str):
         if not existing:
             db.add(OutboundNotice(
                 user_id=user_id,
-                recipient=b.title.split(" — ")[0],
+                recipient=b.title.split(" â€” ")[0],
                 channel="paypal_notice",
                 notice_type="status_update",
                 subject=f"Autonomous Pre-Debit Notice: {b.title}",
@@ -492,7 +636,7 @@ def recommendations(user: User = Depends(user_dep), db=Depends(db_dep, scope="fu
 def approve_mock(case_id: str, user: User = Depends(user_dep), db=Depends(db_dep, scope="function")):
     """Mock mode only: stands in for the buyer clicking 'Pay' on PayPal's page."""
     if settings.paypal_env != "mock":
-        raise HTTPException(400, "only in mock mode — approve on PayPal's page instead")
+        raise HTTPException(400, "only in mock mode â€” approve on PayPal's page instead")
     from .paypal import mock
 
     case = _my_case(db, case_id, user)
@@ -1059,7 +1203,21 @@ def case_resolution(case_id: str, body: ResolutionIn, user: User = Depends(user_
 # --------------------------------------------------------------- webhooks
 @app.post("/api/webhooks/paypal")
 async def paypal_webhook(request: Request, db=Depends(db_dep, scope="function")):
-    event = json.loads(await request.body())
+    import asyncio
+    raw = bytearray()
+    try:
+        async with asyncio.timeout(10):
+            async for chunk in request.stream():
+                raw.extend(chunk)
+                if len(raw) > 1048576:
+                    raise HTTPException(413, "Webhook payload too large")
+        event = json.loads(raw)
+    except TimeoutError:
+        raise HTTPException(408, "Webhook upload timed out") from None
+    except (ValueError, UnicodeError):
+        raise HTTPException(422, "Invalid webhook JSON") from None
+    if not isinstance(event, dict) or not isinstance(event.get("resource", {}), dict):
+        raise HTTPException(422, "Invalid webhook envelope")
     if not get_client().verify_webhook(dict(request.headers), event):
         sentra.ingest(db, kind="webhook_signature_invalid", severity="warning", detail={"id": event.get("id")})
         raise HTTPException(400, "invalid signature")
@@ -1067,11 +1225,36 @@ async def paypal_webhook(request: Request, db=Depends(db_dep, scope="function"))
 
 
 def _apply_webhook(db, event: dict) -> dict:
+    from .models import WebhookInboxEntry
+    from .outbox import publish
+    from sqlalchemy.exc import IntegrityError
+    event_id, event_type = event.get("id"), event.get("event_type")
+    if not isinstance(event_id, str) or not 1 <= len(event_id) <= 200 or not isinstance(event_type, str):
+        raise HTTPException(422, "A provider event ID and type are required")
+    if db.bind.dialect.name == "sqlite":
+        connection = db.connection()
+        if not connection.connection.dbapi_connection.in_transaction:
+            connection.exec_driver_sql("BEGIN")
+    try:
+        with db.begin_nested():
+            entry = WebhookInboxEntry(event_id=event_id, event_type=event_type, raw_payload=event)
+            db.add(entry)
+            db.flush()
+    except IntegrityError:
+        return {"ok": True, "duplicate": True}
+    publish(db, topic="webhook.process", aggregate_id=entry.id, payload={"inbox_id": entry.id},
+            aggregate_type="webhook", dedupe_key="webhook:" + entry.id)
+    return {"ok": True, "accepted": True}
+
+
+def process_inbox_entry(db, entry):
+    event = entry.raw_payload
     res = event.get("resource", {})
     if event.get("event_type", "").startswith("CUSTOMER.DISPUTE."):
         from .agents import dispute_response
 
         case = dispute_response.record(db, res)
+        entry.processed_at = datetime.now(UTC)
         return {"ok": True, "case_id": case.id if case else None, "dispute": res.get("dispute_id")}
     order_id = res.get("supplementary_data", {}).get("related_ids", {}).get("order_id")
     case = None
@@ -1080,13 +1263,17 @@ def _apply_webhook(db, event: dict) -> dict:
     if not case and res.get("capture_id"):
         case = db.scalar(select(Case).where(Case.paypal_capture_id == res["capture_id"]))
     if not case:
+        entry.processed_at = datetime.now(UTC)
         return {"ok": True, "ignored": "no matching case"}
     ev = bc.add_event(db, case, f"webhook_{event['event_type'].lower()}", "paypal_webhook",
                       {"resource_id": res.get("id"), "status": res.get("status")}, external_id=event["id"])
     if ev is None:
+        entry.processed_at = datetime.now(UTC)
         return {"ok": True, "duplicate": True}
-    if event["event_type"] == "PAYMENT.CAPTURE.COMPLETED":
+    if event["event_type"].startswith("PAYMENT.CAPTURE."):
         payments.sync_order_state(db, case)
+    # Mark the inbox entry processed.
+    entry.processed_at = datetime.now(UTC)
     return {"ok": True, "case_id": case.id}
 
 
@@ -1234,8 +1421,7 @@ def feedback(body: FeedbackIn, user: User = Depends(user_dep), db=Depends(db_dep
     return {"ok": True}
 
 
-@app.get("/api/metrics")
-def metrics(db=Depends(db_dep, scope="function")):
+def legacy_metrics(db):
     from .config import MODEL_DIR
 
     report = json.loads((MODEL_DIR / "report.json").read_text()) if (MODEL_DIR / "report.json").exists() else {}

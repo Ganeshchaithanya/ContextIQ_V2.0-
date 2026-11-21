@@ -313,6 +313,89 @@ class A2AMessage(Base):
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class WebhookInboxEntry(Base):
+    """Idempotent webhook inbox (Kiro audit recommendation, 2026-11-21).
+
+    Every inbound PayPal event is inserted here before any state change is applied.
+    The unique constraint on (provider, event_id) makes duplicate-delivery idempotent at
+    the database level, independent of any in-memory duplicate check. A NULL processed_at
+    means the event was received but application logic has not yet run; a non-NULL value
+    marks successful processing. The raw_payload is kept for reconciliation and replay.
+    """
+    __tablename__ = "webhook_inbox"
+    __table_args__ = (UniqueConstraint("provider", "event_id", name="uq_webhook_inbox_provider_event"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_id)
+    provider: Mapped[str] = mapped_column(String, default="paypal")  # paypal | stripe | …
+    event_id: Mapped[str] = mapped_column(String, index=True)
+    event_type: Mapped[str] = mapped_column(String)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    raw_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class OutboxEntry(Base):
+    """Transactional outbox (Kiro audit recommendation, 2026-11-21).
+
+    State changes that must trigger downstream work (background jobs, notifications,
+    reconciliation tasks) write an OutboxEntry in the SAME database transaction as the
+    state change. A separate dispatcher thread polls for unpublished entries, processes
+    them, and marks them published. This guarantees that no event is lost to a crash
+    between the state commit and the job enqueue, and that every event is processed at
+    least once (consumers must be idempotent).
+
+    topic examples: payment.captured, dispute.received, refund.issued
+    payload: arbitrary JSON for the downstream consumer
+    attempts: incremented on each processing attempt; stops at max_attempts
+    error: last error message if processing failed
+    """
+    __tablename__ = "outbox"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_id)
+    topic: Mapped[str] = mapped_column(String, index=True)
+    aggregate_id: Mapped[str] = mapped_column(String, index=True)   # case_id or dispute_id
+    aggregate_type: Mapped[str] = mapped_column(String, default="case")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=5)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_token: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class RateWindow(Base):
+    __tablename__ = "rate_windows"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class VerifiedIdentity(Base):
+    __tablename__ = "verified_identities"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    buyer_id: Mapped[str] = mapped_column(String, unique=True)
+    seller_id: Mapped[str] = mapped_column(String)
+    workspace_id: Mapped[str] = mapped_column(String, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_id)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    state: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String, default="running")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class Invoice(Base):
     """A seller's invoice for a case (what the seller's agent shares)."""
     __tablename__ = "invoices"

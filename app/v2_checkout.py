@@ -127,6 +127,8 @@ def confirm_capture(db, current, invoice, order, payment):
     if terms:
         briefcase.add_evidence(db, case, kind="policy_snapshot", source="merchant_page", provenance="claimed",
                                summary="BrightMart terms as recorded at checkout", content={"terms": terms, "policy_text": invoice.policy})
+    briefcase.set_payment_state(db, case, "order_created", "razorpay_test", {"order": order.order_id})
+    briefcase.set_payment_state(db, case, "buyer_approved", "user", {"invoice": invoice.id})
     briefcase.set_payment_state(db, case, "captured", "razorpay_test", {"order": order.order_id, "payment": payment["id"], "method": order.method})
     briefcase.add_evidence(db, case, kind="capture", source="razorpay_test", provenance="verified",
                            summary=f"Razorpay test capture {payment['id']} confirmed",

@@ -3,6 +3,13 @@
 AI agents may *propose* actions. Only this gateway turns a proposal into a permitted call.
 Order of checks: identity → permission → explicit approval of the exact amount/payee →
 risk decision → limits (step-up) → idempotency → audit.
+
+Concurrency note (Kiro audit, 2026-11-21):
+  Approval.used is set via an atomic UPDATE … WHERE used = FALSE. The row is re-fetched
+  after the UPDATE so the rest of the check sees consistent state. If two concurrent
+  requests race on the same approval token, only one UPDATE will match a used=false row;
+  the other will find used=true on re-fetch and be denied. External PayPal idempotency
+  keys remain a second layer, not the only protection.
 """
 from __future__ import annotations
 
@@ -11,7 +18,7 @@ from hashlib import sha256
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -35,12 +42,12 @@ class Verdict:
         return self.decision == "allow"
 
 
-def issue_approval(db: Session, *, user_id: str, case: Case, action: str) -> Approval:
+def issue_approval(db: Session, *, user_id: str, case: Case, action: str, amount: float | None = None) -> Approval:
     """User explicitly approves THIS amount to THIS payee for THIS action."""
     ag = db.scalar(select(Agreement).where(Agreement.case_id == case.id))
     payee = ag.payee if ag else case.merchant
     token = hmac_token(user_id, case.id, action, f"{case.amount:.2f}", payee, secrets.token_hex(16))
-    ap = Approval(token=token, user_id=user_id, case_id=case.id, action=action, amount=case.amount, payee=payee,
+    ap = Approval(token=token, user_id=user_id, case_id=case.id, action=action, amount=case.amount if amount is None else amount, payee=payee,
                   expires_at=datetime.now(UTC) + timedelta(seconds=settings.approval_ttl_seconds))
     db.add(ap)
     db.flush()
@@ -67,12 +74,12 @@ def check(db: Session, *, actor: str, action: str, case: Case, approval_token: s
 
     approval = None
     if action in MONEY_ACTIONS:
-        approval = db.get(Approval, approval_token) if approval_token else None
+        approval = db.scalar(select(Approval).where(Approval.token == approval_token).with_for_update()) if approval_token else None
         if not approval or approval.used or approval.user_id != actor or approval.case_id != case.id or approval.action != action:
             return _audit(db, actor, action, case, Verdict("deny", ["no valid explicit approval for this action"]))
         if _aware(approval.expires_at) < datetime.now(UTC):
             return _audit(db, actor, action, case, Verdict("deny", ["approval expired"]))
-        if abs(approval.amount - amount) > 0.005 and action != "refund":
+        if amount <= 0 or abs(approval.amount - amount) > 0.005:
             return _audit(db, actor, action, case, Verdict("deny", ["amount differs from the approved amount"]))
         ag = db.scalar(select(Agreement).where(Agreement.case_id == case.id))
         if ag and approval.payee != ag.payee:
@@ -97,10 +104,22 @@ def check(db: Session, *, actor: str, action: str, case: Case, approval_token: s
         if (reasons or approval.step_up_code) and not approval.step_up_passed:
             if approval.step_up_code and failed_step_ups(db, approval) >= MAX_STEP_UP_FAILURES:
                 return _audit(db, actor, action, case, Verdict("deny", ["Too many incorrect confirmation codes. Start a new review."]))
-            if not approval.step_up_code:
-                approval.step_up_code = f"{secrets.randbelow(10**6):06d}"
-            return _audit(db, actor, action, case, Verdict("step_up", reasons, step_up_code=approval.step_up_code))
-        approval.used = True
+            code = confirmation_code(approval.token)
+            if not approval.step_up_code or not approval.step_up_code.startswith("hmac:"):
+                approval.step_up_code = "hmac:" + hmac_token("confirmation", approval.token, code)
+            demo = settings.paypal_env == "mock" and getattr(settings, "auth_mode", "demo") == "demo"
+            return _audit(db, actor, action, case, Verdict("step_up", reasons or ["Independent verification required"], step_up_code=code if demo else None))
+        # Atomic mark-used: UPDATE WHERE used=FALSE so two concurrent requests cannot both
+        # observe used=False. The row count tells us whether we won the race.
+        rows_updated = db.execute(
+            update(Approval)
+            .where(Approval.token == approval.token, Approval.used.is_(False))
+            .values(used=True)
+        ).rowcount
+        if rows_updated == 0:
+            return _audit(db, actor, action, case, Verdict("deny", ["approval already used (concurrent request)"]))
+        # Re-fetch so the rest of this request sees the committed state.
+        approval = db.get(Approval, approval.token)
         if reasons:
             reasons = ["step-up passed"] + reasons
 
@@ -111,6 +130,10 @@ def approval_reference(approval: Approval) -> str:
     return sha256(approval.token.encode()).hexdigest()
 
 
+def confirmation_code(token):
+    return f"{int(hmac_token('demo-confirmation', token), 16) % 1000000:06d}"
+
+
 def failed_step_ups(db: Session, approval: Approval) -> int:
     return db.scalar(select(func.count()).select_from(SecurityEvent).where(
         SecurityEvent.user_id == approval.user_id, SecurityEvent.kind == "step_up_failed",
@@ -118,12 +141,13 @@ def failed_step_ups(db: Session, approval: Approval) -> int:
 
 
 def pass_step_up(db: Session, approval_token: str, code: str) -> bool:
-    ap = db.get(Approval, approval_token)
+    ap = db.scalar(select(Approval).where(Approval.token == approval_token).with_for_update())
     if not ap or ap.used or not ap.step_up_code or _aware(ap.expires_at) < datetime.now(UTC):
         return False
     if failed_step_ups(db, ap) >= MAX_STEP_UP_FAILURES:
         return False
-    if secrets.compare_digest(ap.step_up_code.encode(), code.encode()):
+    expected = "hmac:" + hmac_token("confirmation", approval_token, code)
+    if ap.step_up_code.startswith("hmac:") and secrets.compare_digest(ap.step_up_code, expected):
         ap.step_up_passed = True
         return True
     db.add(SecurityEvent(user_id=ap.user_id, kind="step_up_failed", severity="warning",

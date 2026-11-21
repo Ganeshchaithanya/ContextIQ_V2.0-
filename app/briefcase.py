@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -92,12 +93,32 @@ def record_agreement(db: Session, case: Case, *, items: list[dict], amount: floa
 
 def set_payment_state(db: Session, case: Case, state: str, source: str, payload: dict | None = None,
                       external_id: str | None = None) -> None:
+    from .finance_state import InvalidStateTransition, validate_transition
+    validate_transition(case.payment_state, state)
     case.payment_state = state
     if state == "captured" and case.status in ("draft", "active"):
         case.status = "monitoring"
     elif state in ("order_created", "buyer_approved"):
         case.status = "active"
     add_event(db, case, f"payment_{state}", source, payload or {}, external_id=external_id)
+    # Publish outbox events for states that require downstream work. These are written in
+    # the same transaction as the state change, so a crash before commit loses both.
+    _OUTBOX_TOPICS = {
+        "captured": "payment.captured",
+        "refunded": "payment.refunded",
+        "partially_refunded": "payment.partially_refunded",
+        "failed": "payment.failed",
+        "disputed": "payment.disputed",
+        "verification_pending": "payment.verification_pending",
+    }
+    topic = _OUTBOX_TOPICS.get(state)
+    if topic:
+        from .outbox import publish as _outbox_publish
+        _outbox_publish(db, topic=topic, aggregate_id=case.id,
+                        dedupe_key=f"state:{case.id}:{state}:{content_hash(payload or {})}",
+                        payload={"case_id": case.id, "amount": case.amount,
+                                 "currency": case.currency, "source": source,
+                                 **(payload or {})})
 
 
 def view_case(db: Session, case_id: str, party_id: str) -> dict | None:

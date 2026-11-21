@@ -7,6 +7,7 @@ from time import monotonic
 from typing import TypedDict
 
 from langgraph.graph import END, StateGraph
+from langgraph.runtime import Runtime
 from sqlalchemy import select
 
 from . import finance
@@ -145,7 +146,6 @@ def cached_proactive_tip(kind, urgency):
 
 class AgentState(TypedDict, total=False):
     message: str
-    db: object
     user_id: str
     workspace_id: str
     language: str
@@ -156,6 +156,10 @@ class AgentState(TypedDict, total=False):
     evidence: list
     sources: list
     analysis: dict
+
+
+class AgentContext(TypedDict):
+    db: object
 
 
 def classify_with_model(message: str) -> str | None:
@@ -190,9 +194,9 @@ def route(state):
     return {"topic": classified or "fallback", "routing": "llm" if classified else "rules"}
 
 
-def explain(state):
+def explain(state, runtime: Runtime[AgentContext]):
     from .v2 import bill_rows, daily_suggestions, observations, purchase_budget, workspace
-    db, uid, topic = state["db"], state["user_id"], state["topic"]
+    db, uid, topic = runtime.context["db"], state["user_id"], state["topic"]
     lang = state["language"]
     template = TEXT[lang]
     money = lambda value: f"₹{value / 100:,.2f}"
@@ -291,14 +295,14 @@ def explain(state):
     return {"topic": topic, "answer": template[topic].format(**facts), "destination": destination, "evidence": evidence}
 
 
-def support(state):
+def support(state, runtime: Runtime[AgentContext]):
     if state.get("analysis") or state["topic"] in ("knowledge", "blocked", "safety", "greeting", "fallback"):
         return {}
     from .v2_analysis import financial_analysis
-    return {"analysis": financial_analysis(state["db"], state["user_id"], state["topic"])}
+    return {"analysis": financial_analysis(runtime.context["db"], state["user_id"], state["topic"])}
 
 
-graph = StateGraph(AgentState)
+graph = StateGraph(AgentState, context_schema=AgentContext)
 graph.add_node("route", route)
 graph.add_node("explain", explain)
 graph.add_node("support", support)

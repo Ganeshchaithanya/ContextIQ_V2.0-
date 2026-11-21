@@ -110,6 +110,8 @@ Built for the PayPal AI Hackathon (Devpost) by team Avoflare. Licensed under Apa
 
 The same list, with where each feature lives and how real it is, is in `app/features.py` and on the console page.
 
+> **Built with Kiro.** The VibeX backend architecture audit, security analysis, financial state-machine design, and operational reliability recommendations were produced with [Kiro](https://kiro.dev), Amazon's AI-powered IDE. See [CHANGES_VIBEX.md](CHANGES_VIBEX.md#kiro-assisted-changes) for the specific contributions.
+
 ## Run it (2 minutes)
 
 ```bash
@@ -275,3 +277,6 @@ treat these as a pipeline check, not production accuracy. Next step: external ch
 4. Ask: "Why does my supplier say payment wasn't received?" → PayPal-verified answer, don't pay twice.
 5. Business: invoice vs purchase order mismatch caught before payment; signed counter QR (replay rejected).
 6. Trust: fraud catch rate per attack type, gateway decisions, cache and token metrics.
+
+
+Operational hardening and deployment limits are documented in [docs/OPERATIONS.md](docs/OPERATIONS.md). The hosted app remains a private fictional-data demo with simulated payments; verified-account login and external tracing require explicit provider configuration.

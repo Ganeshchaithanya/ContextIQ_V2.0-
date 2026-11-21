@@ -40,10 +40,17 @@ def init_db() -> None:
     from . import models  # noqa: F401  (register tables)
     from . import v2_models  # noqa: F401
     from . import finance  # noqa: F401
-    from .migrations import migrate
+    from alembic import command
+    from alembic.config import Config
+    from .config import ROOT
 
-    Base.metadata.create_all(engine)
-    migrate(engine)
+    config = Config(str(ROOT / "alembic.ini"))
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            from sqlalchemy import text
+            connection.execute(text("SELECT pg_advisory_xact_lock(708921113)"))
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
 
 
 @contextmanager

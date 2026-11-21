@@ -141,6 +141,9 @@ def complete_payment(db: Session, user_id: str, case_id: str, approval_token: st
     if not verdict.allowed:
         return {"ok": False, "gateway": verdict.decision, "reasons": verdict.reasons,
                 "step_up_code_demo": verdict.step_up_code, "risk": risk}
+    # Persist one-time authorization before an external side effect. A crashed request
+    # must reconcile the original provider operation rather than reusing approval.
+    db.commit()
     result = payments.capture_safely(db, case)
     if result["ok"]:
         _after_capture(db, case, user_id)
@@ -268,7 +271,8 @@ def merchant_refund(db: Session, seller_id: str, case_id: str, approval_token: s
     if not verdict.allowed:
         return {"ok": False, "gateway": verdict.decision, "reasons": verdict.reasons,
                 "step_up_code_demo": verdict.step_up_code}
-    res = payments.refund_safely(db, case, amount=amount, reason=reason)
+    db.commit()
+    res = payments.refund_safely(db, case, amount=amount, reason=reason, operation_id=approval_token)
     if res.get("ok"):
         db.add(LedgerEntry(user_id=case.owner_id, case_id=case.id, payee=case.merchant, description="refund",
                            category=case.category, purpose=case.purpose,

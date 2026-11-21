@@ -27,6 +27,11 @@ _load_dotenv()
 
 
 class Settings:
+    auth_mode: str = os.getenv("CONTEXTIQ_AUTH_MODE", "demo")
+    oidc_issuer: str = os.getenv("OIDC_ISSUER", "")
+    oidc_audience: str = os.getenv("OIDC_AUDIENCE", "")
+    oidc_jwks_url: str = os.getenv("OIDC_JWKS_URL", "")
+    worker_mode: str = os.getenv("CONTEXTIQ_WORKER_MODE", "embedded" if os.getenv("CONTEXTIQ_HOSTED_DEMO") == "1" else "off")
     # PayPal: "mock" (offline, PayPal-shaped responses), "sandbox" or "live"
     paypal_env: str = os.getenv("PAYPAL_ENV", "mock").lower()
     paypal_client_id: str = os.getenv("PAYPAL_CLIENT_ID", "")

@@ -44,45 +44,47 @@ def complete(system: str, user: str, *, large: bool = False, max_tokens: int = 4
              want_json: bool = False, timeout: float = 30) -> str | dict | None:
     if not available():
         return None
+    from ..reliability import llm_circuit, llm_limiter
     t0 = time.time()
     try:
-        if PROVIDER == "groq":
-            body = {"model": GROQ_LARGE if large else GROQ_SMALL, "max_completion_tokens": max_tokens, "temperature": 0.1,
-                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
-            if "gpt-oss" in body["model"]:
-                # gpt-oss reasons before answering; at default effort the reasoning alone can use the whole
-                # max_tokens budget and the visible answer comes back empty or cut mid-sentence.
-                body["reasoning_effort"] = "low"
-            if want_json:
-                body["response_format"] = {"type": "json_object"}
-            r = httpx.post("https://api.groq.com/openai/v1/chat/completions",
-                           headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-                           json=body, timeout=timeout)
-            r.raise_for_status()
-            data = r.json()
-            choice = data["choices"][0]
-            text = choice["message"]["content"] or ""
-            if not text.strip() or choice.get("finish_reason") == "length":
-                raise ValueError(f"incomplete answer (finish_reason={choice.get('finish_reason')})")
-            usage = data.get("usage", {})
-            METER["input_tokens"] += usage.get("prompt_tokens", 0)
-            METER["output_tokens"] += usage.get("completion_tokens", 0)
-        else:
-            r = httpx.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={"x-api-key": settings.anthropic_api_key, "anthropic-version": "2023-06-01",
-                         "content-type": "application/json"},
-                json={"model": settings.llm_model_large if large else settings.llm_model_small,
-                      "max_tokens": max_tokens, "system": system, "messages": [{"role": "user", "content": user}]},
-                timeout=timeout)
-            r.raise_for_status()
-            data = r.json()
-            text = "".join(b.get("text", "") for b in data.get("content", []))
-            METER["input_tokens"] += data.get("usage", {}).get("input_tokens", 0)
-            METER["output_tokens"] += data.get("usage", {}).get("output_tokens", 0)
+        with llm_limiter, llm_circuit:
+            if PROVIDER == "groq":
+                body = {"model": GROQ_LARGE if large else GROQ_SMALL, "max_completion_tokens": max_tokens, "temperature": 0.1,
+                        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+                if "gpt-oss" in body["model"]:
+                    # gpt-oss reasons before answering; at default effort the reasoning alone can use the whole
+                    # max_tokens budget and the visible answer comes back empty or cut mid-sentence.
+                    body["reasoning_effort"] = "low"
+                if want_json:
+                    body["response_format"] = {"type": "json_object"}
+                r = httpx.post("https://api.groq.com/openai/v1/chat/completions",
+                               headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
+                               json=body, timeout=timeout)
+                r.raise_for_status()
+                data = r.json()
+                choice = data["choices"][0]
+                text = choice["message"]["content"] or ""
+                if not text.strip() or choice.get("finish_reason") == "length":
+                    raise ValueError(f"incomplete answer (finish_reason={choice.get('finish_reason')})")
+                usage = data.get("usage", {})
+                METER["input_tokens"] += usage.get("prompt_tokens", 0)
+                METER["output_tokens"] += usage.get("completion_tokens", 0)
+            else:
+                r = httpx.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"x-api-key": settings.anthropic_api_key, "anthropic-version": "2023-06-01",
+                             "content-type": "application/json"},
+                    json={"model": settings.llm_model_large if large else settings.llm_model_small,
+                          "max_tokens": max_tokens, "system": system, "messages": [{"role": "user", "content": user}]},
+                    timeout=timeout)
+                r.raise_for_status()
+                data = r.json()
+                text = "".join(b.get("text", "") for b in data.get("content", []))
+                METER["input_tokens"] += data.get("usage", {}).get("input_tokens", 0)
+                METER["output_tokens"] += data.get("usage", {}).get("output_tokens", 0)
     except Exception as exc:  # noqa: BLE001 — optional layer; fall back to deterministic code
         METER["errors"] += 1
-        log.warning("LLM call failed, using the deterministic fallback: %s", str(exc)[:200])
+        log.warning("LLM unavailable; deterministic fallback (%s)", type(exc).__name__)
         return None
     METER["calls"] += 1
     METER["latency_ms"] += (time.time() - t0) * 1000

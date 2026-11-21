@@ -54,9 +54,14 @@ def fail(code, message):
     raise HTTPException(code, message)
 
 
-def db_dep():
+def db_dep(request: Request):
     with SessionLocal() as db:
         try:
+            if db.bind.dialect.name == "postgresql" and request.method not in ("GET", "HEAD", "OPTIONS"):
+                from sqlalchemy import text
+                subject = getattr(request.state, "session_hash", "anonymous")
+                lock_id = int.from_bytes(hashlib.sha256(subject.encode()).digest()[:8], "big", signed=True)
+                db.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": lock_id})
             yield db
             db.commit()
         except Exception:
@@ -90,7 +95,14 @@ async def access_control(request, call_next):
         return await call_next(request)
     if request.method not in ("GET", "HEAD", "OPTIONS") and not same_origin(request):
         return JSONResponse({"detail": "Cross-origin action rejected"}, status_code=403)
-    if path in ("/api/config", "/api/v2/session"):
+    if path in ("/health/live", "/health/ready", "/api/health"):
+        return await call_next(request)
+    if path == "/api/metrics" or path.startswith("/api/operations/"):
+        supplied = request.headers.get("authorization", "")
+        if not settings.admin_token or not secrets.compare_digest(supplied, "Bearer " + settings.admin_token):
+            return JSONResponse({"detail": "Not authorized"}, status_code=401)
+        return await call_next(request)
+    if path in ("/api/config", "/api/v2/auth/exchange") or (path == "/api/v2/session" and request.method in ("GET", "POST")):
         return await call_next(request)
     token = request.cookies.get("ciq_session", "")
     token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -98,15 +110,17 @@ async def access_control(request, call_next):
         current = db.get(DemoSession, token_hash)
         if not current or aware(current.expires_at) <= now():
             return JSONResponse({"detail": "Start your private demo first"}, status_code=401)
+        if settings.auth_mode == "oidc":
+            from .models import VerifiedIdentity
+            if not db.scalar(select(VerifiedIdentity.id).where(VerifiedIdentity.buyer_id == current.buyer_id)):
+                return JSONResponse({"detail": "Verified sign-in required"}, status_code=401)
         if request.method not in ("GET", "HEAD", "OPTIONS") and not secrets.compare_digest(request.headers.get("x-csrf-token", ""), current.csrf):
             return JSONResponse({"detail": "Refresh the page before trying again"}, status_code=403)
-        ticks = RATE[token_hash]
-        cutoff = time.monotonic() - 60
-        while ticks and ticks[0] < cutoff:
-            ticks.popleft()
-        if len(ticks) >= 180:
+        from .security.identity import rate_allowed
+        allowed = rate_allowed(db, token_hash)
+        db.commit()
+        if not allowed:
             return JSONResponse({"detail": "Please wait a moment before trying again"}, status_code=429)
-        ticks.append(time.monotonic())
         request.state.session_hash = token_hash
         request.scope["headers"] = [(k, v) for k, v in request.scope["headers"] if k.lower() != b"x-user-id"] + [(b"x-user-id", current.buyer_id.encode())]
     if not path.startswith("/api/v2/"):
@@ -174,6 +188,8 @@ def seed_workspace(db, persona):
 
 @router.post("/session")
 def create_session(body: SessionIn, request: Request, response: Response, db=Depends(db_dep)):
+    if settings.auth_mode != "demo":
+        fail(403, "Use verified sign-in")
     if not same_origin(request):
         fail(403, "Cross-origin action rejected")
     if settings.paypal_env != "mock":
@@ -199,13 +215,34 @@ def create_session(body: SessionIn, request: Request, response: Response, db=Dep
     return {"csrf": current.csrf, "demo": True}
 
 
+@router.post("/auth/exchange")
+def verified_session(request: Request, response: Response, db=Depends(db_dep)):
+    from .security.identity import exchange, rate_allowed
+    if not rate_allowed(db, "identity-exchange", limit=30):
+        fail(429, "Please retry sign-in later")
+    header = request.headers.get("authorization", "")
+    if not header.startswith("Bearer "):
+        fail(401, "Verified identity token required")
+    raw, current = exchange(db, header[7:])
+    seconds = max(1, int((aware(current.expires_at) - now()).total_seconds()))
+    response.set_cookie("ciq_session", raw, httponly=True, secure=True, samesite="strict", max_age=seconds)
+    return {"csrf": current.csrf, "demo": False, "payments": "simulated"}
+
+
 @router.get("/session")
 def get_session(request: Request, db=Depends(db_dep)):
     token_hash = hashlib.sha256(request.cookies.get("ciq_session", "").encode()).hexdigest()
     current = db.get(DemoSession, token_hash)
     if not current or aware(current.expires_at) <= now():
         fail(401, "Start your demo")
-    return {"csrf": current.csrf, "demo": True}
+    return {"csrf": current.csrf, "demo": settings.auth_mode == "demo"}
+
+
+@router.delete("/session")
+def logout(response: Response, current=Depends(session), db=Depends(db_dep)):
+    db.delete(current)
+    response.delete_cookie("ciq_session")
+    return {"ok": True}
 
 
 class ProfileIn(BaseModel):
@@ -1340,7 +1377,7 @@ def item_refund(ident: str, body: RefundIn, current=Depends(session), db=Depends
         if record and record.data["quantity"] != body.quantity:
             fail(409, "This refund request already refers to a different quantity")
         if not record:
-            approval = gateway.issue_approval(db, user_id=current.seller_id, case=case, action="refund")
+            approval = gateway.issue_approval(db, user_id=current.seller_id, case=case, action="refund", amount=item.unit_minor * body.quantity / 100)
             record = PlanningRecord(id=record_id, user_id=current.seller_id, kind="refund_approval", title=operation,
                                     data={"approval_token": approval.token, "quantity": body.quantity, "authorized": False})
             db.add(record)
@@ -1360,6 +1397,10 @@ def item_refund(ident: str, body: RefundIn, current=Depends(session), db=Depends
         result = get_client().refund_capture(case.paypal_capture_id, request_id=operation, amount=amount / 100, currency=case.currency, note="Demo seller-approved item refund")
         if result.get("status") != "COMPLETED":
             fail(409, "Refund is awaiting provider confirmation")
+        # The approval commit releases transaction locks. Re-read authoritative
+        # quantities under database locks before recording the provider's result.
+        db.refresh(case, with_for_update=True)
+        db.refresh(item, with_for_update=True)
         item.refunded_quantity += body.quantity
         item.state = "refunded" if item.refunded_quantity == item.quantity else "partially_refunded"
         db.add(LedgerEntry(user_id=current.buyer_id, case_id=case.id, payee=case.merchant, description=f"Refund · {item.name}",
@@ -1379,16 +1420,25 @@ class AskIn(BaseModel):
 
 
 @router.post("/ask")
-def ask(body: AskIn, current=Depends(session), db=Depends(db_dep)):
-    from .v2_intelligence import supervisor
+def ask(body: AskIn, request: Request, current=Depends(session), db=Depends(db_dep)):
+    from .agent_runs import execute
+    from .models import AgentRun
+    from .outbox import publish
     prefs = db.get(Personalization, current.buyer_id).data
-    result = supervisor.invoke({"message": body.message, "db": db, "user_id": current.buyer_id,
-                                "workspace_id": current.workspace_id, "language": prefs.get("language", "en")})
-    output = {key: result[key] for key in ("topic", "answer", "destination", "evidence", "routing")}
-    output["sources"] = result.get("sources", [])
-    output["analysis"] = result.get("analysis")
-    db.add(PlanningRecord(user_id=current.buyer_id, kind="conversation", title=body.message[:100], data={"question": body.message, **output, "at": now().isoformat()}))
+    run = AgentRun(user_id=current.buyer_id, state={"started_at": now().timestamp(),
+        "request_id": getattr(request.state, "request_id", ""), "input": {
+        "message": body.message, "user_id": current.buyer_id,
+        "workspace_id": current.workspace_id, "language": prefs.get("language", "en")}})
+    db.add(run)
+    db.flush()
+    job = publish(db, topic="tara.resume", aggregate_id=run.id, aggregate_type="agent",
+                  payload={"run_id": run.id}, dedupe_key="agent:" + run.id)
+    job.available_at = now() + timedelta(seconds=60)
+    db.commit()
+    output = execute(run.id, db)
+    job.published_at = now()
     return output
+
 
 
 @router.get("/ask")

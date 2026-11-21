@@ -14,6 +14,12 @@ is treated by PayPal as the same request (no duplicate capture or refund).
 
 With PAYPAL_ENV=mock the same code runs against an in-process transport that returns
 PayPal-shaped responses (see mock.py), so everything is testable offline.
+
+Reliability (Kiro audit, 2026-11-21):
+  Every call now runs through the shared paypal_circuit breaker defined in reliability.py.
+  After DEFAULT_FAILURE_THRESHOLD consecutive failures the circuit opens and callers receive
+  CircuitOpen immediately rather than queuing behind a hung connection. Per-operation timeouts
+  are set at the httpx level: auth 10s, reads 15s, writes (capture/refund) 25s.
 """
 from __future__ import annotations
 
@@ -24,6 +30,11 @@ from typing import Any
 import httpx
 
 from ..config import settings
+
+# Timeouts (seconds) — tuned per operation type.
+_TIMEOUT_AUTH   = httpx.Timeout(10.0)
+_TIMEOUT_READ   = httpx.Timeout(15.0)
+_TIMEOUT_WRITE  = httpx.Timeout(25.0)   # capture and refund may take longer
 
 
 class PayPalError(Exception):
@@ -53,6 +64,7 @@ class PayPalClient:
             data={"grant_type": "client_credentials"},
             auth=(settings.paypal_client_id or "mock-id", settings.paypal_client_secret or "mock-secret"),
             headers={"Accept": "application/json"},
+            timeout=_TIMEOUT_AUTH,
         )
         if r.status_code != 200:
             raise PayPalError(r.status_code, r.text)
@@ -61,13 +73,28 @@ class PayPalClient:
         self._token_exp = time.time() + int(body.get("expires_in", 3600))
         return self._token
 
+    # _WRITE_METHODS: HTTP methods that mutate state at PayPal.
+    _WRITE_METHODS = frozenset({"POST", "PATCH", "DELETE"})
+
     def _request(self, method: str, path: str, *, json: Any = None, params: dict | None = None,
                  request_id: str | None = None) -> dict:
+        from ..reliability import paypal_circuit
         headers = {"Authorization": f"Bearer {self._access_token()}", "Content-Type": "application/json",
                    "Prefer": "return=representation"}
         if request_id:
             headers["PayPal-Request-Id"] = request_id
-        r = self._http.request(method, path, json=json, params=params, headers=headers)
+        # Financial write operations (capture, refund) get a longer timeout; reads are shorter.
+        is_financial_write = bool(request_id) and (
+            request_id.startswith("capture-") or request_id.startswith("refund-")
+        )
+        timeout = (
+            _TIMEOUT_WRITE if is_financial_write
+            else (_TIMEOUT_WRITE if method.upper() in self._WRITE_METHODS else _TIMEOUT_READ)
+        )
+        with paypal_circuit:
+            r = self._http.request(method, path, json=json, params=params, headers=headers, timeout=timeout)
+            if r.status_code >= 500:
+                r.raise_for_status()
         if r.status_code >= 400:
             try:
                 raise PayPalError(r.status_code, r.json())

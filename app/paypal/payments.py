@@ -11,7 +11,7 @@ from ..config import settings
 from ..models import Case, User
 from .adapter import PayPalError, approve_link, capture_from_order, get_client
 
-TRANSIENT = (httpx.TimeoutException, httpx.TransportError)
+TRANSIENT = (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError)
 
 
 def create_order_for_case(db: Session, case: Case, items: list[dict], payee_email: str | None = None,
@@ -41,12 +41,26 @@ def sync_order_state(db: Session, case: Case) -> dict:
     order = get_client().get_order(case.paypal_order_id)
     cap = capture_from_order(order)
     if cap and cap.get("status") in ("COMPLETED", "PARTIALLY_REFUNDED", "REFUNDED"):
+        from decimal import Decimal
+        value = cap.get("amount", {})
+        if (value.get("currency_code") != case.currency or
+                Decimal(str(value.get("value", "-1"))) != Decimal(str(case.amount)).quantize(Decimal("0.01"))):
+            raise PayPalError(409, {"error": "Capture amount or currency differs from the approved invoice"})
+        if case.paypal_capture_id and case.paypal_capture_id != cap["id"]:
+            raise PayPalError(409, {"error": "Capture reference changed; manual review required"})
         if case.paypal_capture_id != cap["id"]:
+            if case.payment_state == "order_created":
+                bc.set_payment_state(db, case, "buyer_approved", "paypal_api", {"verified_order": order["id"]})
+            if case.payment_state == "failed":
+                bc.set_payment_state(db, case, "verification_pending", "paypal_api", {"reason": "Authoritative late capture"})
             case.paypal_capture_id = cap["id"]
             bc.set_payment_state(db, case, "captured", "paypal_api", {"capture_id": cap["id"]})
             bc.add_evidence(db, case, kind="paypal_capture", source="paypal_api", provenance="verified",
                             summary=f"Capture {cap['id']} {cap['status']} for {cap['amount']['value']} "
                                     f"{cap['amount']['currency_code']}", content=cap)
+        target = {"PARTIALLY_REFUNDED": "partially_refunded", "REFUNDED": "refunded"}.get(cap["status"])
+        if target and case.payment_state != target and case.payment_state != "refunded":
+            bc.set_payment_state(db, case, target, "paypal_api", {"capture_id": cap["id"], "verified_status": cap["status"]})
     elif cap and cap.get("status") == "PENDING":
         bc.set_payment_state(db, case, "capture_pending", "paypal_api", {"capture_id": cap["id"]})
     elif order["status"] == "APPROVED" and case.payment_state == "order_created":
@@ -116,18 +130,32 @@ def add_tracking_for_case(db: Session, case: Case, tracking_number: str, carrier
     return {"ok": True, **info}
 
 
-def refund_safely(db: Session, case: Case, amount: float | None = None, reason: str = "") -> dict:
+def refund_safely(db: Session, case: Case, amount: float | None = None, reason: str = "",
+                  refund_sequence: int = 1, operation_id: str | None = None) -> dict:
+    """Execute a refund with a stable, collision-free idempotency key.
+
+    Idempotency key design (Kiro audit, 2026-11-21):
+      - Amount is expressed in integer minor units (cents) so floating-point formatting
+        differences never produce distinct keys for the same value.
+      - A refund_sequence counter distinguishes legitimate successive partial refunds on
+        the same case. The caller must increment this for each distinct partial refund;
+        a retry of the same partial refund must pass the same sequence number.
+      - Full refunds use sequence=0 to remain stable regardless of prior partial refunds.
+    """
     if not case.paypal_capture_id:
         return {"ok": False, "error": "no verified capture on this case"}
     client = get_client()
-    # Keyed per (case, amount): a retry of the same refund can never refund twice.
-    request_id = f"refund-{case.id}-{amount if amount is not None else 'full'}"
+    is_full = amount is None or abs(amount - case.amount) < 0.005
+    # Express amount in minor units (cents) for a stable, format-independent key.
+    amount_minor = 0 if is_full else round(amount * 100)
+    seq = 0 if is_full else refund_sequence
+    from hashlib import sha256
+    request_id = "refund-" + sha256(f"{case.id}:{operation_id or seq}:{amount_minor}".encode()).hexdigest()[:32]
     for attempt in range(1, 4):
         try:
             refund = client.refund_capture(case.paypal_capture_id, request_id=request_id, amount=amount,
                                            currency=case.currency, note=reason)
-            full = amount is None or abs(amount - case.amount) < 0.005
-            bc.set_payment_state(db, case, "refunded" if full else "partially_refunded", "paypal_api",
+            bc.set_payment_state(db, case, "refunded" if is_full else "partially_refunded", "paypal_api",
                                  {"refund_id": refund["id"], "amount": refund["amount"]})
             bc.add_evidence(db, case, kind="paypal_refund", source="paypal_api", provenance="verified",
                             summary=f"Refund {refund['id']} {refund['status']} for {refund['amount']['value']} "
