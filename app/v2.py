@@ -734,6 +734,7 @@ class AuthorizeIn(BaseModel):
     version: int
     authorized: bool
     simulated_method: Literal["mock", "upi", "card", "netbanking"] = "mock"
+    simulated_instrument: Literal["upi_qr", "google_pay", "phonepe", "paytm", "demo_card", "demo_bank"] | None = None
     simulate_interruption: bool = False
     step_up_code: str | None = Field(default=None, pattern=r"^[0-9]{6}$")
 
@@ -809,14 +810,19 @@ def apply_purchased_quantities(db, user_id, items, purpose):
 
 @router.post("/invoices/{ident}/authorize")
 def authorize(ident: str, body: AuthorizeIn, current=Depends(session), db=Depends(db_dep)):
-    from .v2_checkout import recorded_demo_method
+    from .v2_checkout import DEMO_INSTRUMENTS, recorded_demo_instrument, recorded_demo_method
     with WRITE_LOCK:
         row = owned_invoice(db, current, ident)
         if db.get(ProviderCheckout, row.id):
             fail(409, "Use your existing provider checkout for this invoice")
         if not body.authorized or body.fingerprint != row.fingerprint or body.version != row.version:
             fail(409, "Review and authorize the exact current invoice")
+        if body.simulated_instrument and body.simulated_instrument not in DEMO_INSTRUMENTS.get(body.simulated_method, {}):
+            fail(422, "Choose a demo instrument for the selected payment method")
         previous_method = recorded_demo_method(db, row.case_id)
+        previous_instrument = recorded_demo_instrument(db, row.case_id)
+        if previous_instrument and previous_instrument != body.simulated_instrument:
+            fail(409, "Continue with the instrument already selected for this payment")
         if previous_method and previous_method != body.simulated_method:
             fail(409, "Continue with the method already selected for this payment")
         if row.status == "paid":
@@ -833,7 +839,8 @@ def authorize(ident: str, body: AuthorizeIn, current=Depends(session), db=Depend
             row.status = "authorized"
             briefcase.add_evidence(db, db.get(Case, row.case_id), kind="invoice_snapshot", source="merchant", provenance="claimed",
                                   summary=f"Invoice {row.id}, version {row.version}, explicitly authorized",
-                                  content={"items": row.items, "fingerprint": row.fingerprint, "simulated_method": body.simulated_method})
+                                  content={"items": row.items, "fingerprint": row.fingerprint,
+                                           "simulated_method": body.simulated_method, "simulated_instrument": body.simulated_instrument})
             db.commit()
         case = db.get(Case, row.case_id)
         mock.approve(case.paypal_order_id)

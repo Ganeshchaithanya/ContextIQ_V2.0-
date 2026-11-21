@@ -61,6 +61,23 @@ function setCheckoutMethod(row, method) {
     ? "Demo checkout · no money will move."
     : "Secure Razorpay test checkout");
   $("#continue-payment").textContent = checkoutButtonText(row, method);
+  $("#payment-method-details").innerHTML = paymentMethodDetails(row, method);
+}
+
+function paymentMethodDetails(row, method) {
+  if (!usesDemoPayment(row, method))
+    return '<div class="payment-detail"><strong>Complete payment with the test gateway</strong><p>Razorpay opens after you approve this invoice. Enter payment details in its checkout window.</p></div>';
+  const instruments = row.checkout.demo_instruments?.[method] || {};
+  const selected = row.checkout.simulated_instrument || Object.keys(instruments)[0];
+  const choices = Object.entries(instruments).map(([value, label]) =>
+    `<label class="demo-instrument"><input type="radio" name="simulated_instrument" value="${esc(value)}" ${value === selected ? "checked" : ""} ${row.checkout.simulated_instrument && value !== selected ? "disabled" : ""}><span>${esc(label)}</span></label>`).join("");
+  const description = {
+    upi: ["Choose a demo UPI flow", "Select an app or QR flow for this walkthrough. Your selection is saved with the demo payment."],
+    card: ["Demo card", "Use the sample card ending 4242 for this walkthrough."],
+    netbanking: ["Demo bank transfer", "Use Demo Business Bank for this walkthrough."],
+    mock: ["Simulated payment", "Review the exact total and recipient, then approve the demo payment."],
+  }[method];
+  return `<section class="payment-detail"><strong>${description[0]}</strong><p>${description[1]}</p><div class="demo-instruments">${choices}</div></section>`;
 }
 
 function checkoutForm(row) {
@@ -74,7 +91,7 @@ function checkoutForm(row) {
     const [icon, hint] = paymentPresentation[key];
     return `<label class="payment-method"><input type="radio" name="method" value="${key}" ${key === selected ? "checked" : ""}><span class="payment-icon" aria-hidden="true">${icon}</span><span><strong>${esc(t(label))}</strong><small>${esc(t(hint))}</small></span></label>`;
   }).join("");
-  return `<form id="authorize-form"><fieldset class="payment-methods"><legend>${esc(t("Payment method"))}</legend>${methodsHtml}</fieldset><p id="checkout-mode" class="field-hint">${esc(t(demo ? "Demo checkout · no money will move." : "Secure Razorpay test checkout"))}</p>${check("I authorize this exact amount, recipient and invoice.", "authorized")}<details id="mock-payment-options" ${demo ? "" : "hidden"}><summary class="field-hint">${esc(t("Demo settings"))}</summary>${check("Demo response interruption", "simulate_interruption")}</details><div class="actions"><button id="continue-payment" class="btn green" type="submit">${esc(checkoutButtonText(row, selected))}</button>${row.can_decline ? button("Decline purchase", "cancel-invoice", row.id, "white") : ""}${existing_method} ? button("Check provider status", "provider-check", row.id, "white") : row.case_id ? button("Check original payment", "reconcile", row.id, "white") : ""}</div></form>`;
+  return `<form id="authorize-form"><div class="checkout-summary"><span class="checkout-merchant-mark" aria-hidden="true">B</span><div><p>Paying BrightMart Electronics</p><strong>${money(row.total_minor)}</strong></div><span class="status">${esc(t(demo ? "Demo checkout" : "Test gateway"))}</span></div><fieldset class="payment-methods"><legend>${esc(t("Payment method"))}</legend>${methodsHtml}</fieldset><div id="payment-method-details">${paymentMethodDetails(row, selected)}</div><p id="checkout-mode" class="field-hint">${esc(t(demo ? "Demo checkout · no money will move." : "Secure Razorpay test checkout"))}</p>${check("I authorize this exact amount, recipient and invoice.", "authorized")}<details id="mock-payment-options" ${demo ? "" : "hidden"}><summary class="field-hint">${esc(t("Demo settings"))}</summary>${check("Demo response interruption", "simulate_interruption")}</details><div class="actions"><button id="continue-payment" class="btn green" type="submit">${esc(checkoutButtonText(row, selected))}</button>${row.can_decline ? button("Decline purchase", "cancel-invoice", row.id, "white") : ""}${existing_method ? button("Check provider status", "provider-check", row.id, "white") : row.case_id ? button("Check original payment", "reconcile", row.id, "white") : ""}</div><p class="checkout-footnote">Your approval is tied to this invoice, recipient and amount. <a href="#/knowledge/receiving-upi">UPI safety guide ↗</a></p></form>`;
 }
 
 let razorpaySource;

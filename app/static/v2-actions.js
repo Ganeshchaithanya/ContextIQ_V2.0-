@@ -599,7 +599,11 @@ async function submit(form) {
     };
     if (data.method && !usesDemoPayment(S.invoice, data.method))
       return openProviderCheckout(S.invoice, payload, data.method);
-    return submitAuthorization({ ...payload, simulated_method: data.method || "mock" });
+    return submitAuthorization({
+      ...payload, simulated_method: data.method || "mock",
+      simulated_instrument: S.invoice.case_id && !S.invoice.checkout.simulated_instrument
+        ? null : data.simulated_instrument || null,
+    });
   }
   if (form.id === "stepup-form")
     return submitAuthorization({ ...S.authorization, step_up_code: data.code });

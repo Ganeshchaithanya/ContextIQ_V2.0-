@@ -137,6 +137,29 @@ def test_concurrent_authorization_settles_once(client):
     assert len([entry for entry in history if entry["case_id"] == results[0].json()["case_id"]]) == 1
 
 
+def test_demo_payment_instrument_is_validated_and_preserved(client):
+    row = invoice(client, "cable")
+    path = f"/api/v2/invoices/{row['id']}"
+    payload = {"fingerprint": row["fingerprint"], "version": row["version"],
+               "authorized": True, "simulated_method": "upi", "simulated_instrument": "google_pay"}
+    invalid = client.post(path + "/authorize", json=payload | {"simulated_instrument": "demo_card"})
+    assert invalid.status_code == 422
+    assert client.get(path).json()["case_id"] is None
+    result = client.post(path + "/authorize", json=payload)
+    assert result.status_code == 200, result.text
+    if result.json().get("gateway") == "step_up":
+        payload["step_up_code"] = result.json()["step_up_code_demo"]
+        result = client.post(path + "/authorize", json=payload)
+    assert result.json()["ok"], result.text
+    paid = client.get(path).json()
+    assert paid["status"] == "paid"
+    assert paid["checkout"]["simulated_instrument"] == "google_pay"
+    assert client.post(path + "/authorize", json=payload).json()["ok"]
+    assert client.post(path + "/authorize", json=payload | {"simulated_instrument": "phonepe"}).status_code == 409
+    rows = client.get("/api/v2/history").json()
+    assert len([entry for entry in rows if entry["case_id"] == paid["case_id"]]) == 1
+
+
 def test_price_monitor_retries_after_database_outage(monkeypatch):
     from unittest.mock import Mock
     from app import v2_watch

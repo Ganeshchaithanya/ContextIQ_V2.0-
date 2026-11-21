@@ -20,6 +20,11 @@ from .v2 import AuthorizeIn, WRITE_LOCK, aware, db_dep, fail, finalize_payment, 
 from .v2_models import ProviderCheckout
 
 METHODS = {"upi": "UPI", "card": "Credit or debit card", "netbanking": "Net banking"}
+DEMO_INSTRUMENTS = {
+    "upi": {"upi_qr": "UPI QR", "google_pay": "Google Pay", "phonepe": "PhonePe", "paytm": "Paytm"},
+    "card": {"demo_card": "Demo card ending 4242"},
+    "netbanking": {"demo_bank": "Demo Business Bank"},
+}
 
 
 def credentials():
@@ -60,7 +65,16 @@ def checkout_info(db, invoice_id, case_id):
     existing = db.get(ProviderCheckout, invoice_id)
     return {"methods": METHODS, "gateway_available": credentials() is not None,
             "existing_method": existing.method if existing else None,
-            "simulated_method": None if existing else recorded_demo_method(db, case_id)}
+            "simulated_method": None if existing else recorded_demo_method(db, case_id),
+            "simulated_instrument": None if existing else recorded_demo_instrument(db, case_id),
+            "demo_instruments": DEMO_INSTRUMENTS}
+
+
+def recorded_demo_instrument(db, case_id):
+    if not case_id:
+        return None
+    evidence = db.scalar(select(Evidence).where(Evidence.case_id == case_id, Evidence.kind == "invoice_snapshot").limit(1))
+    return evidence.content.get("simulated_instrument") if evidence else None
 
 
 @router.post("/invoices/{ident}/provider-order")

@@ -15,6 +15,47 @@ const guide = (() => {
   let highlighted = null;
   let openTip = null;
   let openAlert = null;
+  const tourStorageKey = "contextiq.tara-tour.v1";
+  let tourIndex = null;
+  let tourSeen = false;
+  try { tourSeen = localStorage.getItem(tourStorageKey) === "seen"; } catch { /* Use session state. */ }
+  const tourSteps = [
+    { route: "home", selector: ".balance-card", title: "Start with your money", body: "Available funds shows your recorded cash. Available to spend accounts for bills and planned savings. Your to-do list puts urgent work first." },
+    { route: "seller", selector: ".seller-stats", title: "See who owes you", body: "Back office shows business cash, unpaid invoices and overdue clients. Open an invoice from this page to follow up." },
+    { route: "seller/invoices", selector: '#main a[href="#/seller/invoices/new"]', title: "Create and track an invoice", body: "Choose New invoice, add your client and work, then review the draft. Record each payment after it reaches you." },
+    { route: "seller/forecast", selector: "#seller-whatif-customer", title: "Plan before cash gets tight", body: "Choose 30, 60 or 90 days. Test a client paying late to see how your cash position changes before you make a decision." },
+    { route: "budget/allocation", selector: "#main .panel", title: "Check what is safe to spend", body: "Budget uses the same money records as Back office. Bills come first, followed by your reserves and savings plans." },
+    { route: "purchases", selector: '#main a[href="#/purchases/before"]', title: "Review a purchase before paying", body: "Track prices before buying. At checkout, review the exact recipient and amount, choose a method, and decide whether to approve or decline." },
+    { route: "knowledge", selector: "#knowledge-search", title: "Find an explanation when you need it", body: "Search the knowledge base for payment, invoice and cash-flow guides. Each guide shows its source and review date. You can replay this tour from Home." },
+  ];
+
+  function rememberTour() {
+    tourSeen = true;
+    try { localStorage.setItem(tourStorageKey, "seen"); } catch { /* Use session state. */ }
+  }
+
+  function startTour() {
+    rememberTour();
+    paused = false;
+    try { localStorage.setItem(storageKey, "no"); } catch { /* Use session state. */ }
+    tourIndex = 0;
+    if (S.route.join("/") === "home") update();
+    else navigate("home");
+  }
+
+  function moveTour(change) {
+    const next = tourIndex + change;
+    if (next >= tourSteps.length) {
+      tourIndex = null;
+      rememberTour();
+      update();
+      return;
+    }
+    tourIndex = Math.max(0, next);
+    const step = tourSteps[tourIndex];
+    if (S.route.join("/") === step.route) update();
+    else navigate(step.route);
+  }
   const nextTips = new Map();
   const dismissed = new Set();
   const seenAlerts = new Set();
@@ -339,6 +380,9 @@ const guide = (() => {
     highlighted.classList.add("guide-target");
     panel.setAttribute("aria-label", t("Tara, your visual guide"));
     panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">${current.alert ? "◴" : "✦"}</span> ${esc(current.alert ? `Tara · ${current.alert.label}` : t("Tara, your visual guide"))}</span><button type="button" class="guide-close" data-guide="dismiss" aria-label="${esc(t("Dismiss this tip"))}">×</button></div><div class="guide-copy" role="status" aria-live="polite"><h2>${esc(current.title)}</h2><p>${esc(current.body)}</p></div><div class="guide-controls"><button type="button" class="btn green small" data-guide="show">${esc(t("Show me"))} <span aria-hidden="true">↗</span></button><button type="button" class="guide-pause" data-guide="pause">${esc(t("Pause tips"))}</button></div>`;
+    if (current.tour) {
+      panel.querySelector(".guide-controls").innerHTML = `<div class="guide-tour-status"><span>Step ${tourIndex + 1} of ${tourSteps.length}</span><button type="button" class="guide-pause" data-guide="show">Show me</button></div><div class="guide-tour-buttons"><button type="button" class="btn white small" data-guide="tour-back" ${tourIndex === 0 ? "disabled" : ""}>Back</button><button type="button" class="btn green small" data-guide="tour-next">${tourIndex === tourSteps.length - 1 ? "Finish tour" : "Next"}</button><button type="button" class="guide-pause" data-guide="tour-skip">Skip tour</button></div>`;
+    }
   }
 
   async function updateNextTip() {
@@ -365,6 +409,19 @@ const guide = (() => {
   }
 
   function update() {
+    if (!tourSeen && !paused && S.csrf && S.profile.onboarded && S.route[0] === "home") {
+      rememberTour();
+      tourIndex = 0;
+    }
+    const step = tourIndex === null ? null : tourSteps[tourIndex];
+    if (step && S.route.join("/") === step.route) {
+      current = { ...cue(`tour:${tourIndex}`, step.selector, step.title, step.body), tour: true };
+      openTip = current.id;
+      dismissed.delete(current.id);
+      draw();
+      return;
+    }
+    if (step) tourIndex = null;
     current = pageCue();
     draw();
     void updateNextTip();
@@ -380,9 +437,20 @@ const guide = (() => {
   $("#visual-guide").addEventListener("click", (event) => {
     const command = event.target.closest("[data-guide]")?.dataset.guide;
     if (!command || !current) return;
+    if (current.tour) {
+      if (command === "tour-next") return moveTour(1);
+      if (command === "tour-back") return moveTour(-1);
+      if (["tour-skip", "dismiss", "pause"].includes(command)) {
+        tourIndex = null;
+        rememberTour();
+        return update();
+      }
+    }
     if (command === "show") {
       const target = $(current.selector);
       if (!target) return;
+      if (!target.matches('a[href], button, input, select, textarea, [tabindex]'))
+        target.setAttribute("tabindex", "-1");
       target.scrollIntoView({
         block: "center",
         behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -452,5 +520,8 @@ const guide = (() => {
     }
   }, 15_000);
 
-  return { update, clear, refreshHomeFocus };
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("[data-guide-start]")) startTour();
+  });
+  return { update, clear, refreshHomeFocus, startTour };
 })();
