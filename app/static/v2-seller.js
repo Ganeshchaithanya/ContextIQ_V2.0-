@@ -11,6 +11,7 @@
     ["seller/forecast", "Cash forecast"],
     ["seller/bills", "Bills"],
     ["seller/settings", "Business settings"],
+    ["knowledge", "Knowledge base"],
   ];
   const PAYMENT_METHODS = [["upi", "UPI"], ["bank", "Bank transfer"], ["cash", "Cash"], ["cheque", "Cheque"]];
   const METHOD_LABEL = Object.fromEntries(PAYMENT_METHODS);
@@ -163,6 +164,7 @@
       subtitle: "Save a draft, share its details, then mark it as sent.",
       back: "seller/invoices", backLabel: "Invoices",
       html: `<form id="seller-invoice-form" class="panel seller-form">
+        <p class="field-hint"><a href="#/knowledge/invoice-follow-ups">How invoices and payment follow-ups work</a></p>
         <div class="seller-two">
           <div class="form-field"><label for="seller-customer">Customer</label><select id="seller-customer" name="customer_id" required>${options}</select></div>
           <div class="form-field"><label for="seller-issue">Issue date</label><input id="seller-issue" name="issue_date" type="date" value="${issue}" required></div>
@@ -181,6 +183,7 @@
     return `<form id="seller-payment-form" class="panel seller-form" data-invoice-id="${esc(invoice.id)}" data-request-id="${crypto.randomUUID()}">
       <h2>Add a received payment</h2>
       <p class="field-hint">The client still owes ${rupee(balance)}. Add a payment here after you receive it.</p>
+      <p class="field-hint"><a href="#/knowledge/partial-receipts">How to record a full or partial payment</a> · <a href="#/knowledge/receiving-upi">Receive UPI payments safely</a></p>
       <div class="seller-two">
         <div class="form-field"><label for="seller-pay-amount">Amount received (₹)</label><input id="seller-pay-amount" name="amount" type="number" min="0.01" max="${(balance / 100).toFixed(2)}" step="0.01" value="${(balance / 100).toFixed(2)}" required></div>
         <div class="form-field"><label for="seller-pay-method">Payment method</label><select id="seller-pay-method" name="method">${PAYMENT_METHODS.map(([k, l]) => `<option value="${k}">${esc(t(l))}</option>`).join("")}</select></div>
@@ -330,6 +333,7 @@
           ${forecastChart(series, `Projected balance for ${horizon} days, lowest ${rupee(minDay.balance_minor)}`)}
           <p class="field-hint">Lowest point ${rupee(minDay.balance_minor)} on ${longDate(minDay.date)}.</p>
           <p class="field-hint">Receipts use invoice due dates and each client's usual delay. Already overdue receipts are assumed today. Use the delay scenario to test what happens if collection takes longer.</p>
+          <p class="field-hint"><a href="#/knowledge/cash-forecast">How this forecast is calculated</a></p>
           <details><summary>Day-by-day figures</summary><div class="table-wrap"><table class="seller-table"><caption>Projected balance by day</caption><thead><tr><th scope="col">Date</th><th scope="col" class="num">Receipts</th><th scope="col" class="num">Bills</th><th scope="col" class="num">Balance</th></tr></thead><tbody>${rows}</tbody></table></div></details>
         </section>
         <section class="panel seller-form" aria-labelledby="seller-whatif-title"><h2 id="seller-whatif-title">${esc(t("What if a client pays late?"))}</h2>

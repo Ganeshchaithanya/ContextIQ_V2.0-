@@ -311,6 +311,44 @@ def test_reminder_contains_upi_link_with_balance(client):
     assert "Payment is due on" in reminder["text"]
 
 
+def test_reviewed_knowledge_search_sources_and_stale_guidance(client, monkeypatch):
+    from datetime import date
+    from app import knowledge
+
+    new_session(client, "freelancer")
+    articles = client.get("/api/v2/knowledge").json()
+    assert len(articles) == 7
+    assert all(article["source_url"] and article["reviewed_on"] and article["review_due"] for article in articles)
+    assert client.get("/api/v2/knowledge/no-such-guide").status_code == 404
+    assert any(article["id"] == "receiving-upi" for article in client.get("/api/v2/knowledge?q=UPI").json())
+    before = client.get("/api/v2/dashboard").json()["finance"]["balance_minor"]
+    reply = client.post("/api/v2/ask", json={"message": "Do I need a UPI PIN to receive money?"}).json()
+    assert reply["topic"] == "knowledge" and reply["routing"] == "reviewed_guide"
+    assert reply["sources"][0]["url"] == knowledge.RBI_SAFETY
+    assert reply["destination"] == "#/knowledge/receiving-upi"
+    assert "does not require" in reply["answer"]
+    facts = client.post("/api/v2/ask", json={"message": "How much cash do I have?"}).json()
+    assert facts["topic"] != "knowledge"
+    assert client.get("/api/v2/dashboard").json()["finance"]["balance_minor"] == before
+    monkeypatch.setattr(knowledge, "REVIEWED_ON", date(2020, 1, 1))
+    old = client.post("/api/v2/ask", json={"message": "Explain UPI pending payments"}).json()
+    assert "due for review" in old["answer"] and old["sources"][0]["needs_review"]
+
+
+def test_duplicate_bank_reference_does_not_record_receipt_twice(client):
+    customer = make_customer(client)
+    invoice = make_invoice(client, customer["id"], [{"description": "Design", "unit_price_minor": 100000}])
+    client.post(f"/api/v2/seller/invoices/{invoice['id']}/send")
+    path = f"/api/v2/seller/invoices/{invoice['id']}/payments"
+    body = {"amount_minor": 25000, "method": "upi", "reference": "UTR-EXAMPLE-001", "request_id": "reference-check-001"}
+    assert client.post(path, json=body).status_code == 200
+    assert client.post(path, json=body).status_code == 200
+    second = body | {"reference": " utr-example-001 ", "request_id": "reference-check-002"}
+    assert client.post(path, json=second).status_code == 409
+    saved = client.get(f"/api/v2/seller/invoices/{invoice['id']}").json()
+    assert saved["paid_minor"] == 25000 and len(saved["payments"]) == 1
+
+
 def test_freelancer_demo_seed(client):
     seeded = new_session(client, "freelancer")
     customers = seeded.get("/api/v2/seller/customers").json()

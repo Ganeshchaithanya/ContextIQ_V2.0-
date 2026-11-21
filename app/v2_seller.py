@@ -432,13 +432,21 @@ def record_payment(ident: str, body: PaymentIn, current=Depends(session), db=Dep
             if replay.data != payload:
                 fail(409, "This receipt request already recorded different payment details")
             return invoice_view(db, row, db.get(Customer, row.customer_id), today(), detail=True)
+        reference = body.reference.strip()
+        if reference and body.method in ("upi", "bank"):
+            db.execute(update(Personalization).where(Personalization.user_id == current.buyer_id).values(data=Personalization.data))
+            duplicate = db.scalar(select(SellerPayment.id).where(
+                SellerPayment.owner_id == current.buyer_id, SellerPayment.method == body.method,
+                func.lower(func.trim(SellerPayment.reference)) == reference.lower()).limit(1))
+            if duplicate:
+                fail(409, "This payment reference is already recorded. Review the existing receipt before adding another.")
         if row.status not in OPEN_STATUSES:
             fail(409, "Payments can only be recorded on a sent invoice")
         balance = row.total_minor - row.amount_paid_minor
         if body.amount_minor > balance:
             fail(422, f"Payment of {rupees(body.amount_minor)} exceeds the balance of {rupees(balance)}")
         db.add(SellerPayment(owner_id=current.buyer_id, invoice_id=row.id, amount_minor=body.amount_minor,
-                             method=body.method, reference=body.reference, received_on=received))
+                             method=body.method, reference=reference, received_on=received))
         if key:
             db.add(PlanningRecord(id=key, user_id=current.buyer_id, kind="seller_receipt", title=row.number, data=payload))
         row.amount_paid_minor += body.amount_minor

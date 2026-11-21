@@ -329,11 +329,16 @@ def checkout_cart(body: SharedCart, current=Depends(session), db=Depends(db_dep)
 
 def price_watch_worker(stop):
     while not stop.wait(60):
-        with SessionLocal() as db:
-            active_users = select(DemoSession.buyer_id).where(DemoSession.expires_at > now())
-            rows = db.execute(select(PriceWatch.id, PriceWatch.user_id).where(
-                PriceWatch.enabled, PriceWatch.user_id.in_(active_users), PriceWatch.checked_at <= now() - CHECK_AFTER
-            ).order_by(PriceWatch.checked_at).limit(12)).all()
+        try:
+            with SessionLocal() as db:
+                active_users = select(DemoSession.buyer_id).where(DemoSession.expires_at > now())
+                rows = db.execute(select(PriceWatch.id, PriceWatch.user_id).where(
+                    PriceWatch.enabled, PriceWatch.user_id.in_(active_users), PriceWatch.checked_at <= now() - CHECK_AFTER
+                ).order_by(PriceWatch.checked_at).limit(12)).all()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Price watch scheduling failed; retrying next cycle")
+            continue
         for ident, user_id in rows:
             if stop.is_set():
                 return

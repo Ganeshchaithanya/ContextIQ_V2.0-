@@ -196,6 +196,7 @@ function phaseLabel(route) {
       scan: "Scan & Pay",
       merchant: "Merchant desk",
       seller: "Back office",
+      knowledge: "Knowledge base",
       notices: "Notices",
       notifications: "Notifications",
     }[route] || "Home"
@@ -289,7 +290,7 @@ function shell() {
     )
     .join("");
   $("#app").innerHTML =
-    `<aside class="sidebar"><a class="brand" href="#/home">ContextIQ<b>.</b></a><nav class="nav" aria-label="Main navigation">${navHtml}</nav><div class="sidebar-bottom"><nav class="nav"><a class="${primary === "preferences" ? "active" : ""}" href="#/preferences"><span class="nav-icon">⚙</span>${esc(t("Preferences"))}</a></nav><p class="sidebar-note"><i></i>${esc(t("Your private financial demo"))}<br>${esc(t("No money moves in this demo"))}</p></div></aside><div class="shell"><header class="topbar"><div class="crumb"><span class="crumb-prefix">${esc(t("Your money, understood."))}</span><strong>${esc(t(phaseLabel(primary)))}</strong></div><div class="top-actions">${
+    `<aside class="sidebar"><a class="brand" href="#/home">ContextIQ<b>.</b></a><nav class="nav" aria-label="Main navigation">${navHtml}</nav><div class="sidebar-bottom"><nav class="nav"><a href="#/knowledge" class="${primary === "knowledge" ? "active" : ""}"><span class="nav-icon" aria-hidden="true">?</span>${esc(t("Knowledge base"))}</a><a class="${primary === "preferences" ? "active" : ""}" href="#/preferences"><span class="nav-icon">⚙</span>${esc(t("Preferences"))}</a></nav><p class="sidebar-note"><i></i>${esc(t("Your private financial demo"))}<br>${esc(t("No money moves in this demo"))}</p></div></aside><div class="shell"><header class="topbar"><div class="crumb"><span class="crumb-prefix">${esc(t("Your money, understood."))}</span><strong>${esc(t(phaseLabel(primary)))}</strong></div><div class="top-actions">${
       S.profile.configuration === "separate"
         ? `<div class="workspace"><select aria-label="Financial workspace" id="workspace-select">${[
             ["auto", "Auto"],

@@ -153,6 +153,7 @@ class AgentState(TypedDict, total=False):
     answer: str
     destination: str
     evidence: list
+    sources: list
 
 
 def classify_with_model(message: str) -> str | None:
@@ -175,8 +176,11 @@ def classify_with_model(message: str) -> str | None:
 
 def route(state):
     message = state["message"].lower()
-    if re.search(r"^(pay|transfer|send money|approve payment|पैसे भेज|भुगतान करो|ಹಣ ಕಳುಹಿ)", message):
+    if re.search(r"^(pay\b|transfer\b|send money\b|approve payment\b|पैसे भेज|भुगतान करो|ಹಣ ಕಳುಹಿ)", message):
         return {"topic": "blocked", "routing": "rules"}
+    from .knowledge import find_guide
+    if find_guide(message):
+        return {"topic": "knowledge", "routing": "reviewed_guide"}
     match = next((topic for topic, pattern in PATTERNS if re.search(pattern, message, re.I)), None)
     if match:
         return {"topic": match, "routing": "rules"}
@@ -191,6 +195,16 @@ def explain(state):
     template = TEXT[lang]
     money = lambda value: f"₹{value / 100:,.2f}"
     facts, destination, evidence = {}, "#/ask", []
+    if topic == "knowledge":
+        from .knowledge import find_guide
+        article = find_guide(state["message"])
+        answer = ("This guide is due for review. Check its source for the latest information."
+                  if article["needs_review"] else " ".join(article["paragraphs"]))
+        return {"topic": topic, "answer": answer, "destination": f"#/knowledge/{article['id']}",
+                "evidence": [article["id"]], "sources": [{
+                    "title": article["source_title"], "url": article["source_url"],
+                    "reviewed_on": article["reviewed_on"], "needs_review": article["needs_review"],
+                }]}
     prefs = db.get(Personalization, uid).data
     if prefs.get("persona") == "freelancer" and topic not in (
             "budget", "afford", "payment", "purchase", "goal", "emi", "safety", "blocked"):

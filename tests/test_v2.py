@@ -137,6 +137,18 @@ def test_concurrent_authorization_settles_once(client):
     assert len([entry for entry in history if entry["case_id"] == results[0].json()["case_id"]]) == 1
 
 
+def test_price_monitor_retries_after_database_outage(monkeypatch):
+    from unittest.mock import Mock
+    from app import v2_watch
+
+    stop = Mock()
+    stop.wait.side_effect = [False, False, True]
+    unavailable = Mock(side_effect=RuntimeError("Temporary database outage"))
+    monkeypatch.setattr(v2_watch, "SessionLocal", unavailable)
+    v2_watch.price_watch_worker(stop)
+    assert unavailable.call_count == 2
+
+
 def test_session_isolation_csrf_and_reset(client):
     own = invoice(client)
     before = client.get("/api/v2/profile").json()

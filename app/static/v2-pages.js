@@ -4,7 +4,7 @@ async function allocationPage() {
   if (!allocation) return `${back("budget")}${head("Spending Allocation")}<section class="panel"><p>${esc(t("Allocation is temporarily unavailable. Reload to retry."))}</p></section>`;
   const group = (title, rows) => rows.length ? `<section class="panel"><h2>${esc(t(title))}</h2>${rows.map((row) => `<div class="list-row"><div><h3>${row.destination ? `<a href="${esc(row.destination)}">${esc(row.title)} ↗</a>` : esc(row.title)}</h3>${row.due ? `<p>${esc(t("Due date"))} · ${date(row.due)}</p>` : ""}${row.requested_minor > row.amount_minor ? `<p>${esc(t("Planned contribution"))} · ${money(row.requested_minor)}</p>` : ""}</div><div><strong>${money(row.amount_minor)}</strong>${row.destination || !row.id ? "" : button("Edit reserve", "reserve-edit", row.id, "small ghost")}</div></div>`).join("")}</section>` : "";
   const flexible = allocation.flexible_minor;
-  return `${back("budget")}${head("Spending Allocation", "Updates automatically from your recorded money.", button("Add reserve", "plan-dialog", "allocation", "white"))}<section class="panel"><div class="section-top"><h2>${esc(t(flexible < 0 ? "Budget shortfall" : "Available to spend"))} · ${money(Math.abs(flexible))}</h2><span class="field-hint">${esc(t(workspace === "all" ? "Unified" : workspace === "business" ? "Business" : "Personal"))}</span></div>${kv("Recorded balance", money(finance.balance_minor))}${kv("Bills, supplier invoices and EMIs", money(allocation.committed_minor))}${kv("Manual reserves", money(allocation.reserved_minor))}${kv("Planned savings", money(allocation.savings_minor))}<p class="field-hint">${esc(t("These amounts are set aside in your plan. Your recorded balance changes when you record money in or out."))}</p></section><div class="grid two">${group("Bills and commitments", allocation.commitments)}${group("Goal contributions", allocation.savings)}${group("Manual reserves", allocation.reserves)}</div>`;
+  return `${back("budget")}${head("Spending Allocation", "Updates automatically from your recorded money.", button("Add reserve", "plan-dialog", "allocation", "white"))}<section class="panel"><div class="section-top"><h2>${esc(t(flexible < 0 ? "Budget shortfall" : "Available to spend"))} · ${money(Math.abs(flexible))}</h2><span class="field-hint">${esc(t(workspace === "all" ? "Unified" : workspace === "business" ? "Business" : "Personal"))}</span></div>${kv("Recorded balance", money(finance.balance_minor))}${kv("Bills, supplier invoices and EMIs", money(allocation.committed_minor))}${kv("Manual reserves", money(allocation.reserved_minor))}${kv("Planned savings", money(allocation.savings_minor))}<p class="field-hint">${esc(t("These amounts are set aside in your plan. Your recorded balance changes when you record money in or out."))}</p><p class="field-hint"><a href="#/knowledge/cash-and-receivables">Understand cash, money owed and available spending</a></p></section><div class="grid two">${group("Bills and commitments", allocation.commitments)}${group("Goal contributions", allocation.savings)}${group("Manual reserves", allocation.reserves)}</div>`;
 }
 
 function goalDetails(plan) {
@@ -198,8 +198,34 @@ async function askPage() {
   return `<div class="chat"><div class="chat-intro"><span class="ask-symbol" style="font-size:34px">✦</span>${head("Ask Tara", "A clearer answer, grounded in your records.")}<div class="prompts">${(S.profile.persona === "freelancer" ? ["Who owes me money?", "What should I focus on today?", "What if clients pay 15 days late?"] : ["What should I focus on today?", "Can I afford this purchase?", "What bills are due?"]).map((q) => button(q, "prompt", t(q))).join("")}</div></div><div id="messages">${S.messages.map(messageHtml).join("")}</div><form id="ask-form" class="chat-form"><input name="message" required maxlength="2000" aria-label="${esc(t("Ask a question"))}" placeholder="${esc(t("Ask a question"))}">${S.profile.voice_enabled ? button("Voice", "voice", "", "white") : ""}<button type="submit" class="btn green">${esc(t("Send"))} ↗</button></form><p class="field-hint">${esc(t("Use demo details only. Tara may send your question to a language model to identify the topic."))}</p></div>`;
 }
 function messageHtml(row) {
-  return `<div class="message user">${esc(row.question)}</div><div class="message assistant">${esc(row.answer)}<div class="actions"><a class="btn small white" href="${esc(row.destination)}">${esc(t("View details"))} ↗</a>${S.profile.voice_enabled ? button("Read aloud", "speak", row.answer, "small ghost") : ""}</div><details><summary class="field-hint">${esc(t("Evidence references"))}</summary><p class="field-hint">${esc(row.evidence.join(" · "))}</p></details></div>`;
+  return `<div class="message user">${esc(row.question)}</div><div class="message assistant">${esc(row.answer)}${(row.sources || []).map((source) => `<p class="field-hint">${knowledgeSource(source.title, source.url)} · Reviewed ${date(source.reviewed_on)}${source.needs_review ? " · Review due" : ""}</p>`).join("")}<div class="actions"><a class="btn small white" href="${esc(row.destination)}">${esc(t("View details"))} ↗</a>${S.profile.voice_enabled ? button("Read aloud", "speak", row.answer, "small ghost") : ""}</div><details><summary class="field-hint">${esc(t("Evidence references"))}</summary><p class="field-hint">${esc(row.evidence.join(" · "))}</p></details></div>`;
 }
+
+function knowledgeSource(title, url) {
+  if (!/^https:\/\//.test(url) && !/^#\//.test(url)) return esc(title);
+  return `<a href="${esc(url)}"${url.startsWith("https://") ? ' target="_blank" rel="noopener noreferrer"' : ""}>${esc(title)}</a>`;
+}
+
+async function knowledgePage() {
+  const id = S.route[1];
+  if (id) {
+    const article = await api(`/knowledge/${encodeURIComponent(id)}`);
+    return `${back("knowledge")}${head(article.title, article.category)}<section class="panel">${article.needs_review ? '<p class="notice warn">This guide is due for review. Check the linked source for current guidance.</p>' : ""}${article.paragraphs.map((paragraph) => `<p style="margin-bottom:16px;line-height:1.7">${esc(paragraph)}</p>`).join("")}<p class="field-hint">${esc(article.source_type)} · Reviewed ${date(article.reviewed_on)} · Next review ${date(article.review_due)}</p><p style="margin-top:12px">${knowledgeSource(article.source_title, article.source_url)}</p><div class="actions">${link("Open related page", article.action, "green")}</div></section>`;
+  }
+  const articles = await api("/knowledge");
+  return `${head("Knowledge base", "Clear guides with sources and review dates.")}<section class="panel"><label for="knowledge-search">Search guides</label><input id="knowledge-search" type="search" maxlength="200" placeholder="Try UPI, invoices or cash forecast" style="width:100%;margin-top:10px;padding:12px;border:1px solid #cfd6c8;border-radius:12px;font:inherit"></section><div class="grid two">${articles.map((article) => `<section class="panel knowledge-card" data-search="${esc([article.title, article.summary, article.category, ...article.paragraphs].join(" ").toLowerCase())}"><p class="field-hint">${esc(article.category)}</p><h2>${esc(article.title)}</h2><p style="margin:12px 0;line-height:1.6">${esc(article.summary)}</p><p class="field-hint">${esc(article.source_type)} · ${article.needs_review ? "Review due" : "Reviewed " + date(article.reviewed_on)}</p><div class="actions">${link("Read guide", `knowledge/${article.id}`, "small white")}</div></section>`).join("")}</div><p id="knowledge-empty" class="field-hint" hidden>No guide matches that search. Try UPI, invoices, bills or forecast.</p>`;
+}
+
+document.addEventListener("input", (event) => {
+  if (event.target.id !== "knowledge-search") return;
+  const terms = event.target.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  let visible = 0;
+  document.querySelectorAll(".knowledge-card").forEach((card) => {
+    card.hidden = !terms.every((term) => card.dataset.search.includes(term));
+    if (!card.hidden) visible += 1;
+  });
+  document.getElementById("knowledge-empty").hidden = visible > 0;
+});
 
 async function preferencesPage() {
   const p = S.profile;
@@ -260,6 +286,7 @@ async function render() {
       notifications: notificationsPage,
       notices: noticesPage,
       ask: askPage,
+      knowledge: knowledgePage,
       preferences: preferencesPage,
       watch: watchPage,
       merchant: merchantPage,
