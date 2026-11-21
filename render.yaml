@@ -3,6 +3,7 @@ services:
     name: contextiq-v2-ganesh
     runtime: python
     plan: free
+    region: virginia
     branch: main
     buildCommand: python -m pip install -r requirements.txt
     startCommand: python run.py
@@ -19,6 +20,10 @@ services:
         value: embedded
       - key: CONTEXTIQ_AUTH_MODE
         value: demo
+      - key: DATABASE_URL
+        fromDatabase:
+          name: contextiq-v2-data
+          property: connectionString
       - key: LLM_PROVIDER
         value: groq
       - key: GROQ_MODEL_SMALL
