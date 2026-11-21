@@ -200,3 +200,23 @@ test("the automatic tour finishes at Home for recommendations and stops its time
   assert(!app.query("#visual-guide").attributes.has("data-tour"));
   assert.equal(app.timers.size, 0);
 });
+
+test("logging out clears private guidance and cancels the pending tour", () => {
+  const app = setup(); app.update();
+  app.context.S.csrf = "";
+  vm.runInContext("guide.clear()", app.context);
+  assert.equal(app.query("#visual-guide").hidden, true);
+  assert.equal(app.timers.size, 0);
+  app.context.S.csrf = "new-login";
+  app.update();
+  assert.match(app.query("#visual-guide").innerHTML, /Start with your money/);
+});
+
+test("Tara remains available when an invoice has no actionable payment", () => {
+  const app = setup();
+  app.context.S.route = ["invoice", "cancelled-demo"];
+  app.context.S.invoice = {id:"cancelled-demo",status:"cancelled"};
+  app.update();
+  assert.equal(app.query("#visual-guide").hidden, false);
+  assert.match(app.query("#visual-guide").innerHTML, /Open Tara visual guide/);
+});

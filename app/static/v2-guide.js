@@ -274,7 +274,10 @@ const guide = (() => {
         alert: timing,
       };
     }
-    if (page === "invoice" && S.invoice) return paymentCue(S.invoice);
+    if (page === "invoice" && S.invoice) {
+      const payment = paymentCue(S.invoice);
+      if (payment) return payment;
+    }
     if (page === "purchases" && section === "item" && S.item)
       return purchaseCue(S.item);
     if (page === "purchases" && section === "after") {
@@ -541,6 +544,13 @@ const guide = (() => {
     stopTourTimer();
     removeHighlight();
     hideSpotlight();
+    if (!S.csrf || !S.profile.onboarded) {
+      current = null;
+      tourIndex = null;
+      const panel = $("#visual-guide");
+      panel.hidden = true;
+      panel.textContent = "";
+    }
   }
 
   $("#visual-guide").addEventListener("click", (event) => {

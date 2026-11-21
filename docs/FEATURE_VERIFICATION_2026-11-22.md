@@ -42,7 +42,7 @@ restart stability and rejection of weak secrets.
 
 Test inventory: 35 purchase/budget checks, 24 seller checks, 15 operations checks,
 42 legacy flow checks, 6 experience checks, 2 PostgreSQL integration checks and
-17 JavaScript checks: **141 automated checks**, plus builds and the restore drill.
+19 JavaScript checks: **143 automated checks**, plus builds and the restore drill.
 Python files run in separate processes because each owns its test database settings.
 
 ## Verification limits
