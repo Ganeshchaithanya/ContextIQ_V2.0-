@@ -518,9 +518,7 @@ def dashboard(activity: str = "", hour: int | None = None, days: int = 30, curre
                                              monthly_surplus=month["income_minor"] - month["expense_minor"])
     notes = observations(db, current.buyer_id)
     suggestions = daily_suggestions(db, current.buyer_id, purpose, notes, plans, allocation)
-    from .v2_observability import automation_summary
     return {"profile": prefs, "workspace": purpose, "finance": financial, "bills": bills,
-            "automation_summary": automation_summary(db, current, prefs, allocation),
             "committed_minor": allocation["committed_minor"],
             "allocated_minor": allocation["reserved_minor"] + allocation["savings_minor"],
             "flexible_minor": allocation["flexible_minor"], "allocation": allocation,
@@ -685,9 +683,7 @@ def invoice_view(db, row):
     from .v2_checkout import checkout_info
     return {"id": row.id, "version": row.version, "kind": row.kind, "items": row.items, "total_minor": row.total_minor,
             "currency": row.currency, "purpose": row.purpose, "merchant": "BrightMart Electronics", "policy": row.policy,
-            "status": row.status, "fingerprint": row.fingerprint, "qr_token": row.qr_token,
-            "qr_code": "ciqr1." + row.id + "." + crypto.hmac_token("mobile-invoice", row.id, row.workspace_id, row.fingerprint),
-            "expires_at": aware(row.expires_at).isoformat(),
+            "status": row.status, "fingerprint": row.fingerprint, "qr_token": row.qr_token, "expires_at": aware(row.expires_at).isoformat(),
             "case_id": row.case_id, "checkout": checkout_info(db, row.id, row.case_id),
             "can_decline": can_decline_invoice(db, row),
             "affordability": purchase_budget(db, row)}
@@ -752,27 +748,6 @@ class ScanIn(BaseModel):
 @router.post("/scan")
 def scan(body: ScanIn, current=Depends(session), db=Depends(db_dep)):
     raw = body.token.strip()
-    if raw.startswith(("https://", "http://")):
-        from urllib.parse import urlsplit, parse_qs
-        parsed = urlsplit(raw)
-        trusted = {urlsplit(value).netloc.lower() for value in (settings.app_url, settings.public_base_url) if value}
-        if parsed.fragment.startswith("/scan?"):
-            if parsed.username or parsed.password or parsed.netloc.lower() not in trusted:
-                fail(422, "Use a payment code or a link from this ContextIQ app")
-            values = parse_qs(parsed.fragment.split("?", 1)[1]).get("code", [])
-            if len(values) != 1 or not values[0].startswith(("ciq1.", "ciqr1.")):
-                fail(422, "This ContextIQ payment link has no valid code")
-            raw = values[0]
-    if raw.startswith("ciqr1."):
-        import re
-        match = re.fullmatch(r"ciqr1\.([a-f0-9]{16})\.([a-f0-9]{32})", raw)
-        if not match:
-            fail(422, "Invalid ContextIQ payment code")
-        row = owned_invoice(db, current, match[1])
-        expected = crypto.hmac_token("mobile-invoice", row.id, row.workspace_id, row.fingerprint)
-        if not secrets.compare_digest(expected, match[2]):
-            fail(422, "This payment code does not match its invoice")
-        return scanned_invoice(db, row)
     if not raw.startswith("ciq1."):
         from .agents.qr import interpret
         from .v2_checkout import upi_handoff
@@ -792,10 +767,6 @@ def scan(body: ScanIn, current=Depends(session), db=Depends(db_dep)):
     if (signed.get("typ"), signed.get("workspace"), signed.get("fingerprint")) != (
             "ciq.invoice/2", current.workspace_id, row.fingerprint) or row.qr_token != raw:
         fail(422, "Invoice signature does not match")
-    return scanned_invoice(db, row)
-
-
-def scanned_invoice(db, row):
     if aware(row.expires_at) <= now():
         fail(409, "This invoice has expired. Create a new QR.")
     if row.status != "open":

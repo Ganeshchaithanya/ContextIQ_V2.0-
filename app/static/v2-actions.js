@@ -340,7 +340,7 @@ async function action(name, id) {
     return render();
   }
   if (name === "copy-qr") {
-    await navigator.clipboard.writeText(paymentEntryLink(S.invoice));
+    await navigator.clipboard.writeText(S.invoice.qr_token);
     return toast(t("Copied"));
   }
   if (name === "cancel-invoice") {
@@ -620,8 +620,6 @@ async function submit(form) {
     return navigate(`invoice/${row.id}`);
   }
   if (form.id === "scan-form") {
-    S.scanDraft = data.token.trim();
-    if (!S.csrf) return toast("Start a private demo before verifying a payment request.");
     const result = await api("/scan", { token: data.token.trim() });
     if (result.invoice) return navigate(`invoice/${result.invoice.id}`);
     $("#scan-result").innerHTML =

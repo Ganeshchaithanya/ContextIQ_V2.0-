@@ -19,29 +19,6 @@ const guide = (() => {
   let tourIndex = null;
   let spotlightStep = null;
   let spotlightFrame = null;
-  const sizeStorageKey = "contextiq.tara-size.v1";
-  let sizeOpen = false;
-  const boundedSize = (value, low, high, fallback) => value !== null && value !== "" && Number.isFinite(Number(value)) ? Math.min(high, Math.max(low, Number(value))) : fallback;
-  let size = {width: 360, text: 14, height: 65};
-  try {
-    const saved = JSON.parse(localStorage.getItem(sizeStorageKey) || "{}");
-    size = {width: boundedSize(saved.width, 280, 520, 360), text: boundedSize(saved.text, 12, 18, 14), height: boundedSize(saved.height, 35, 85, 65)};
-  } catch { /* Use readable defaults when local settings are unavailable. */ }
-
-  function applySize() {
-    const panel = $("#visual-guide");
-    panel.style.setProperty("--tara-width", `${size.width}px`);
-    panel.style.setProperty("--tara-text", `${size.text}px`);
-    panel.style.setProperty("--tara-height", `${size.height}dvh`);
-    for (const [name, value] of Object.entries(size)) {
-      const label = panel.querySelector(`[data-tara-size-value="${name}"]`);
-      if (label) label.textContent = value + (name === "height" ? "% of screen" : "px");
-    }
-  }
-
-  function sizeSettings() {
-    return `<div class="guide-size-settings" ${sizeOpen ? "" : "hidden"}>${[["width", "Width", 280, 520, 20], ["text", "Text size", 12, 18, 1], ["height", "Maximum height", 35, 85, 5]].map(([key, label, min, max, step]) => `<label>${label}<output data-tara-size-value="${key}">${size[key]}</output><input type="range" min="${min}" max="${max}" step="${step}" value="${size[key]}" data-guide-size="${key}" aria-label="Tara ${label.toLowerCase()}"></label>`).join("")}<small>These display settings stay in this browser.</small></div>`;
-  }
   let tourSeen = false;
   try { tourSeen = localStorage.getItem(tourStorageKey) === "seen"; } catch { /* Use session state. */ }
   const tourSteps = [
@@ -313,7 +290,7 @@ const guide = (() => {
       return;
     const renderId = S.renderId;
     try {
-      const data = await api(`/dashboard?days=${S.chartDays || 30}`);
+      const data = await api("/dashboard");
       const panel = $(".daily-checklist");
       if (S.renderId !== renderId || S.route[0] !== "home" || !panel) return;
       const previous = S.dashboard;
@@ -329,8 +306,6 @@ const guide = (() => {
         figures.outerHTML = homeOverview(data);
         drawChart("balance-chart", data.finance.chart);
       }
-      const impact = $("[data-automation-widgets]");
-      if (impact) impact.outerHTML = automationWidgets(data);
       if (!listChanged) return;
       const checkedId = document.activeElement?.dataset?.dailyTask;
       const viewControl = document.activeElement?.closest(
@@ -380,7 +355,7 @@ const guide = (() => {
     const spot = $("#tour-spotlight");
     const panel = $("#visual-guide");
     const vw = window.innerWidth, vh = window.innerHeight;
-    const margin = 12, gap = 18, width = Math.min(size.width, vw - margin * 2);
+    const margin = 12, gap = 18, width = Math.min(360, vw - margin * 2);
     panel.style.width = `${width}px`;
     const height = Math.min(panel.getBoundingClientRect().height || 300, vh - margin * 2);
     const rect = target?.getBoundingClientRect();
@@ -417,7 +392,6 @@ const guide = (() => {
 
   function draw() {
     const panel = $("#visual-guide");
-    applySize();
     removeHighlight();
     const target = current && $(current.selector);
     if (
@@ -459,7 +433,7 @@ const guide = (() => {
     highlighted = target.closest(".form-check") || target;
     highlighted.classList.add("guide-target");
     panel.setAttribute("aria-label", t("Tara, your visual guide"));
-    panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">${current.alert ? "◴" : "✦"}</span> ${esc(current.alert ? `Tara · ${current.alert.label}` : t("Tara, your visual guide"))}</span><div class="guide-top-actions"><button type="button" class="guide-size-toggle" data-guide="size" aria-expanded="${sizeOpen}">Size</button><button type="button" class="guide-close" data-guide="dismiss" aria-label="${esc(t("Dismiss this tip"))}">×</button></div></div>${sizeSettings()}<div class="guide-copy" role="status" aria-live="polite"><h2>${esc(current.title)}</h2><p>${esc(current.body)}</p></div><div class="guide-controls"><button type="button" class="btn green small" data-guide="show">${esc(t("Show me"))} <span aria-hidden="true">↗</span></button><button type="button" class="guide-pause" data-guide="pause">${esc(t("Pause tips"))}</button></div>`;
+    panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">${current.alert ? "◴" : "✦"}</span> ${esc(current.alert ? `Tara · ${current.alert.label}` : t("Tara, your visual guide"))}</span><button type="button" class="guide-close" data-guide="dismiss" aria-label="${esc(t("Dismiss this tip"))}">×</button></div><div class="guide-copy" role="status" aria-live="polite"><h2>${esc(current.title)}</h2><p>${esc(current.body)}</p></div><div class="guide-controls"><button type="button" class="btn green small" data-guide="show">${esc(t("Show me"))} <span aria-hidden="true">↗</span></button><button type="button" class="guide-pause" data-guide="pause">${esc(t("Pause tips"))}</button></div>`;
     if (current.tour) {
       panel.setAttribute("data-tour", "");
       highlighted.classList.add("guide-tour-target");
@@ -467,10 +441,7 @@ const guide = (() => {
       if (spotlightStep !== current.id) {
         spotlightStep = current.id;
         target.scrollIntoView({block: "start", behavior: "instant"});
-        const heading = panel.querySelector(".guide-copy h2");
-        heading.setAttribute("tabindex", "-1");
-        heading.focus({preventScroll: true});
-        panel.scrollTop = 0;
+        panel.querySelector('[data-guide="tour-next"]').focus({preventScroll: true});
       }
       positionSpotlight();
     }
@@ -528,11 +499,6 @@ const guide = (() => {
   $("#visual-guide").addEventListener("click", (event) => {
     const command = event.target.closest("[data-guide]")?.dataset.guide;
     if (!command || !current) return;
-    if (command === "size") {
-      sizeOpen = !sizeOpen;
-      draw();
-      return;
-    }
     if (current.tour) {
       if (command === "tour-next") return moveTour(1);
       if (command === "tour-back") return moveTour(-1);
@@ -590,7 +556,7 @@ const guide = (() => {
     if (document.hidden || S.busy || $("#dialog").open || page !== "budget") return;
     try {
       if (section === "allocation") {
-        const data = await api(`/dashboard?days=${S.chartDays || 30}`);
+        const data = await api("/dashboard");
         if (JSON.stringify(data.allocation) !== JSON.stringify(S.dashboard?.allocation)) queueWorkspaceRefresh();
       }
       if (section === "goals") {
@@ -618,15 +584,6 @@ const guide = (() => {
 
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-guide-start]")) startTour();
-  });
-  $("#visual-guide").addEventListener("input", event => {
-    const key = event.target.dataset.guideSize;
-    const limits = {width: [280, 520, 360], text: [12, 18, 14], height: [35, 85, 65]};
-    if (!limits[key]) return;
-    size[key] = boundedSize(event.target.value, ...limits[key]);
-    try { localStorage.setItem(sizeStorageKey, JSON.stringify(size)); } catch { /* Session-only display preference. */ }
-    applySize();
-    positionSpotlight();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && tourIndex !== null && !$("#dialog").open) {
