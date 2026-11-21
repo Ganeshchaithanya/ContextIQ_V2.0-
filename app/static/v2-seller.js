@@ -83,7 +83,7 @@
   }
 
   async function dashboardView() {
-    const [aging, alerts] = await Promise.all([api("/seller/receivables/aging"), api("/seller/alerts")]);
+    const [aging, alerts, cash] = await Promise.all([api("/seller/receivables/aging"), api("/seller/alerts"), api("/seller/forecast?horizon_days=30")]);
     lastAlerts = alerts.alerts;
     window.ContextIQSeller.focus = alerts.alerts[0] || null;
     const overdue = aging.invoices.filter((row) => row.overdue);
@@ -106,7 +106,7 @@
       title: "Who owes me?",
       subtitle: "Receivables, late payers and the next thing to do.",
       action: `<a class="btn green" href="#/seller/invoices/new">New invoice</a>`,
-      html: `<div class="stat-row seller-stats">${stat("Total receivable", rupee(aging.total_outstanding_minor))}${stat("Overdue", rupee(overdueTotal), "negative")}${stat("Late clients", String(lateClients))}</div>
+      html: `<div class="stat-row seller-stats">${stat("Recorded cash", rupee(cash.opening_minor))}${stat("Total receivable", rupee(aging.total_outstanding_minor))}${stat("Overdue", rupee(overdueTotal), "negative")}${stat("Late clients", String(lateClients))}</div>
         <section class="panel"><h2>${esc(t("Aging"))}</h2><div class="seller-buckets">${bucketHtml}</div><div class="spacer"></div>${agingTable}</section>
         <section class="panel" aria-labelledby="seller-alerts-title"><h2 id="seller-alerts-title">${esc(t("Next actions"))}</h2>${alertList}</section>`,
     };

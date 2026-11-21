@@ -9,16 +9,16 @@ from __future__ import annotations
 import calendar
 import hashlib
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 from urllib.parse import quote
 
 from fastapi import Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from .config import settings
-from .models import now
+from .models import LedgerEntry, User, now
 from .v2 import WRITE_LOCK, db_dep, fail, router, session
 from .v2_models import Customer, Personalization, PlanningRecord, SellerBill, SellerBillPayment, SellerInvoice, SellerInvoiceLine, SellerPayment
 
@@ -189,18 +189,63 @@ def bill_offsets(due: date, recurrence: str, as_of: date, horizon: int) -> list[
     return [(d - as_of).days for d in candidates if d < end]
 
 
+def sync_business_ledger(db, owner):
+    """Bring existing and new seller records into the same ledger as purchases and budgets."""
+    profile = db.get(Personalization, owner)
+    if not profile:
+        return
+    if profile.data.get("persona") != "freelancer" and "seller" not in profile.data:
+        if not db.scalar(select(SellerPayment.id).where(SellerPayment.owner_id == owner).limit(1)) and not db.scalar(
+                select(SellerBillPayment.id).where(SellerBillPayment.owner_id == owner).limit(1)):
+            return
+    # Acquire a write lock before reading posted entries on SQLite and PostgreSQL.
+    db.execute(update(Personalization).where(Personalization.user_id == owner).values(data=Personalization.data))
+    db.refresh(profile)
+    prefix = f"studio:{owner}:"
+    posted = {row.settlement_key: row for row in db.scalars(select(LedgerEntry).where(
+        LedgerEntry.user_id == owner, LedgerEntry.settlement_key.startswith(prefix)))}
+    opening_key = prefix + "opening"
+    opening_minor = -seller_settings(db, owner)["opening_balance_minor"]
+    opening = posted.get(opening_key)
+    if opening:
+        opening.amount_minor, opening.amount = opening_minor, opening_minor / 100
+    else:
+        db.add(LedgerEntry(user_id=owner, payee="Business opening balance", description="Starting business cash",
+            category="opening", purpose="business", currency="INR", amount_minor=opening_minor,
+            amount=opening_minor / 100, source="studio_opening", settlement_key=opening_key,
+            occurred_at=datetime.combine(today() - timedelta(days=3650), time.min, UTC)))
+    for payment in db.scalars(select(SellerPayment).where(SellerPayment.owner_id == owner)):
+        key = prefix + "receipt:" + payment.id
+        if key not in posted:
+            invoice = db.get(SellerInvoice, payment.invoice_id)
+            customer = db.get(Customer, invoice.customer_id)
+            db.add(LedgerEntry(user_id=owner, payee=customer.name, description=f"Receipt for {invoice.number}",
+                category="sales", purpose="business", currency="INR", amount_minor=-payment.amount_minor,
+                amount=-payment.amount_minor / 100, source="owner_confirmed_receipt", settlement_key=key,
+                occurred_at=datetime.combine(payment.received_on, time.min, UTC)))
+    for payment in db.scalars(select(SellerBillPayment).where(SellerBillPayment.owner_id == owner)):
+        key = prefix + "bill:" + payment.id
+        if key not in posted:
+            bill = db.get(SellerBill, payment.bill_id)
+            db.add(LedgerEntry(user_id=owner, payee=bill.name, description=f"Bill paid: {bill.name}",
+                category="operating", purpose="business", currency="INR", amount_minor=payment.amount_minor,
+                amount=payment.amount_minor / 100, source="owner_confirmed_bill", settlement_key=key,
+                occurred_at=datetime.combine(payment.paid_on, time.min, UTC)))
+    db.flush()
+    if profile.data.get("persona") == "freelancer":
+        total = db.scalar(select(func.coalesce(func.sum(LedgerEntry.amount_minor), 0)).where(
+            LedgerEntry.user_id == owner, LedgerEntry.purpose == "business", LedgerEntry.currency == "INR"))
+        db.get(User, owner).available_balance = -total / 100
+
+
 def cash_position(db, owner, as_of):
-    receipts = db.scalar(select(func.coalesce(func.sum(SellerPayment.amount_minor), 0)).where(
-        SellerPayment.owner_id == owner, SellerPayment.received_on <= as_of))
-    paid = db.scalar(select(func.coalesce(func.sum(SellerBillPayment.amount_minor), 0)).where(
-        SellerBillPayment.owner_id == owner, SellerBillPayment.paid_on <= as_of))
-    return seller_settings(db, owner)["opening_balance_minor"] + receipts - paid
+    from . import finance
+    return finance.summary(db, owner, "business")["balance_minor"]
 
 
 def build_forecast(db, owner: str, horizon: int, delay_days: int = 0, customer_id: str | None = None) -> dict:
     """When customer_id is given, the delay applies only to that customer's open invoices."""
     as_of = today()
-    cfg = seller_settings(db, owner)
     customers = customers_by_id(db, owner)
     inflows, outflows = [0] * horizon, [0] * horizon
     for row in open_invoices(db, owner):

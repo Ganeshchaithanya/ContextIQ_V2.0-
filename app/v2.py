@@ -26,7 +26,7 @@ from .db import SessionLocal
 from .models import Approval, AuditLog, Case, CaseEvent, Evidence, LedgerEntry, Obligation, OutboundNotice, PolicySnapshot, User, now, _id
 from .paypal import mock, payments
 from .security import crypto
-from .v2_models import DemoSession, InvoiceSnapshot, Observation, PaymentIncident, Personalization, PlanningRecord, PriceWatch, ProviderCheckout, PurchaseItem
+from .v2_models import Customer, DemoSession, InvoiceSnapshot, Observation, PaymentIncident, Personalization, PlanningRecord, PriceWatch, ProviderCheckout, PurchaseItem, SellerBill, SellerInvoice
 
 router = APIRouter(prefix="/api/v2")
 WRITE_LOCK = threading.RLock()
@@ -166,7 +166,7 @@ def seed_workspace(db, persona):
         db.add(PlanningRecord(user_id=buyer_id, kind="supplier", title="Neighbourhood Staples Wholesale", purpose="business",
                               data={"status": "open", "contact": "Fictional supplier", "notes": "Rice, dal and cooking oil"}))
     goal_title = "New weighing scale for the shop" if persona == "shopkeeper" else "A laptop for what's next"
-    db.add(PlanningRecord(user_id=buyer_id, kind="goal", title=goal_title, purpose="business" if persona == "shopkeeper" else "personal",
+    db.add(PlanningRecord(user_id=buyer_id, kind="goal", title=goal_title, purpose="business" if persona in ("shopkeeper", "freelancer") else "personal",
                           data={"target_minor": 500000 if persona == "shopkeeper" else 5500000, "saved_minor": 0, "contribution_minor": 200000, "horizon": "medium", "target_date": (now() + timedelta(days=365)).date().isoformat(), "priority": "normal"}))
     db.flush()
     return ident, buyer_id, seller_id
@@ -263,13 +263,34 @@ def bill_rows(db, user_id):
     for plan in db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == user_id, PlanningRecord.kind == "emi")):
         bill_purposes.update({row["bill_id"]: plan.purpose for row in plan.data.get("schedule", [])})
     rows = db.scalars(select(Obligation).where(Obligation.owner_id == user_id, Obligation.kind.in_(("bill", "subscription", "emi", *BUSINESS_BILL_KINDS))))
-    return [{"id": row.id, "title": row.title, "amount_minor": finance.minor(row.amount), "due": aware(row.due_at).date().isoformat(),
+    bills = [{"id": row.id, "title": row.title, "amount_minor": finance.minor(row.amount), "due": aware(row.due_at).date().isoformat(),
              "status": row.status, "purpose": bill_purposes.get(row.id, "business" if row.kind in BUSINESS_BILL_KINDS else "personal"), "kind": row.kind} for row in rows]
+    bills.extend({"id": f"studio:{row.id}", "title": row.name, "amount_minor": row.amount_minor,
+                  "due": row.due_date.isoformat(), "status": "done" if row.paid else "open",
+                  "purpose": "business", "kind": "studio_bill", "destination": "#/seller/bills"}
+                 for row in db.scalars(select(SellerBill).where(SellerBill.owner_id == user_id)))
+    return bills
 
 
 def observations(db, user_id):
     active = set()
-    tracked_bills = [bill | {"destination": f"#/budget/bills/{bill['id']}"} for bill in bill_rows(db, user_id)]
+    client_invoices = db.scalars(select(SellerInvoice).where(
+        SellerInvoice.owner_id == user_id, SellerInvoice.status.in_(("sent", "part_paid"))))
+    for invoice in client_invoices:
+        balance = invoice.total_minor - invoice.amount_paid_minor
+        if balance <= 0:
+            continue
+        customer = db.get(Customer, invoice.customer_id)
+        ident = f"studio-receivable:{invoice.id}"
+        active.add(ident)
+        row = db.get(Observation, ident)
+        if not row:
+            row = Observation(id=ident, user_id=user_id, kind="receivable", priority=61,
+                              source_id=invoice.id, destination=f"#/seller/invoices/{invoice.id}", data={})
+            db.add(row)
+        row.data = {"title": f"{invoice.number} · {customer.name}", "amount_minor": balance,
+                    "due": invoice.due_date.isoformat(), "purpose": "business"}
+    tracked_bills = [bill | {"destination": bill.get("destination", f"#/budget/bills/{bill['id']}")} for bill in bill_rows(db, user_id)]
     supplier_invoices = db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == user_id, PlanningRecord.kind == "supplier_invoice"))
     tracked_bills.extend({"id": row.id, "title": row.title, "purpose": "business", "status": "open",
                           "amount_minor": row.data["amount_minor"], "due": row.data["due"],

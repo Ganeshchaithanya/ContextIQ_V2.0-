@@ -192,7 +192,8 @@ def explain(state):
     money = lambda value: f"₹{value / 100:,.2f}"
     facts, destination, evidence = {}, "#/ask", []
     prefs = db.get(Personalization, uid).data
-    if prefs.get("persona") == "freelancer":
+    if prefs.get("persona") == "freelancer" and topic not in (
+            "budget", "afford", "payment", "purchase", "goal", "emi", "safety", "blocked"):
         from .v2_seller import explain_studio
         return explain_studio(db, uid, state["message"], topic)
     purpose = workspace(prefs)

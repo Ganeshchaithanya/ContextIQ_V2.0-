@@ -12,6 +12,11 @@ def minor(value):
     return int((Decimal(str(value)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+def accounting_date(value):
+    value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return (value + timedelta(hours=5, minutes=30)).date()
+
+
 @event.listens_for(LedgerEntry, "before_insert")
 def normalize_ledger(mapper, connection, entry):
     if entry.amount_minor is None:
@@ -23,6 +28,8 @@ def normalize_ledger(mapper, connection, entry):
 
 
 def entries(db, user_id, purpose=None, currency="INR"):
+    from .v2_seller import sync_business_ledger
+    sync_business_ledger(db, user_id)
     query = select(LedgerEntry).where(LedgerEntry.user_id == user_id, LedgerEntry.currency == currency)
     if purpose in ("personal", "business"):
         query = query.where(LedgerEntry.purpose == purpose)
@@ -31,17 +38,17 @@ def entries(db, user_id, purpose=None, currency="INR"):
 
 def summary(db, user_id, purpose=None, days=30, currency="INR"):
     rows = entries(db, user_id, purpose, currency)
-    today = datetime.now(UTC).date()
+    today = accounting_date(datetime.now(UTC))
     start = today - timedelta(days=days - 1)
-    opening = -sum(row.amount_minor for row in rows if row.occurred_at.date() < start)
-    period = [row for row in rows if start <= row.occurred_at.date() <= today]
+    opening = -sum(row.amount_minor for row in rows if accounting_date(row.occurred_at) < start)
+    period = [row for row in rows if start <= accounting_date(row.occurred_at) <= today]
     income = -sum(row.amount_minor for row in period if row.amount_minor < 0)
     expenses = sum(row.amount_minor for row in period if row.amount_minor > 0)
     balance = opening
     chart = []
     for offset in range(days):
         day = start + timedelta(days=offset)
-        balance -= sum(row.amount_minor for row in period if row.occurred_at.date() == day)
+        balance -= sum(row.amount_minor for row in period if accounting_date(row.occurred_at) == day)
         chart.append({"date": day.isoformat(), "balance_minor": balance})
     categories = {}
     for row in period:
@@ -82,7 +89,7 @@ def spending_allocation(balance, purpose, bills, plans, purchase=None, purchase_
     """Plan against recorded cash and obligations without writing ledger entries."""
     scoped = [row for row in plans if purpose == "all" or row.purpose == purpose]
     commitments = [
-        {**bill, "destination": f"#/budget/bills/{bill['id']}"}
+        {**bill, "destination": bill.get("destination", f"#/budget/bills/{bill['id']}")}
         for bill in bills
         if bill["status"] == "open" and (purpose == "all" or bill["purpose"] == purpose)
     ]

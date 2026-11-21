@@ -213,6 +213,84 @@ def test_delay_scenario_postpones_already_overdue_receipts(client):
     assert result["scenario"]["first_negative_date"] == (today() + timedelta(days=3)).isoformat()
 
 
+def test_one_business_balance_connects_receipts_bills_purchases_and_forecast(client):
+    from concurrent.futures import ThreadPoolExecutor
+
+    new_session(client, "freelancer")
+    dashboard = lambda: client.get("/api/v2/dashboard").json()
+    forecast = lambda: client.get("/api/v2/seller/forecast?horizon_days=30").json()
+    before = dashboard()
+    assert before["finance"]["balance_minor"] == forecast()["opening_minor"]
+    assert before["finance"]["balance_minor"] > 0
+    assert before["allocation"]["savings_minor"] == 200000
+    customer = make_customer(client, "Connected money client")
+    inv = make_invoice(client, customer["id"], [{"description": "Design delivery", "unit_price_minor": 100000}])
+    client.post(f"/api/v2/seller/invoices/{inv['id']}/send")
+    assert any(row["id"] == f"studio-receivable:{inv['id']}" for row in dashboard()["observations"])
+    body = {"amount_minor": 40000, "request_id": "connected-receipt-0001"}
+    for _ in range(2):
+        assert client.post(f"/api/v2/seller/invoices/{inv['id']}/payments", json=body).status_code == 200
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        views = list(pool.map(client.get, ["/api/v2/dashboard", "/api/v2/seller/forecast?horizon_days=30"]))
+    assert all(response.status_code == 200 for response in views)
+    assert views[0].json()["finance"]["balance_minor"] == views[1].json()["opening_minor"]
+    received = dashboard()
+    assert received["finance"]["balance_minor"] == before["finance"]["balance_minor"] + 40000
+    assert forecast()["opening_minor"] == received["finance"]["balance_minor"]
+    bill = client.post("/api/v2/seller/bills", json={
+        "name": "Design supplies", "amount_minor": 20000, "due_date": today().isoformat(),
+    }).json()
+    committed = dashboard()["allocation"]["committed_minor"]
+    assert client.post(f"/api/v2/seller/bills/{bill['id']}/record-payment", json={
+        "confirmed": True, "request_id": "connected-bill-0001",
+    }).status_code == 200
+    paid_bill = dashboard()
+    assert paid_bill["finance"]["balance_minor"] == received["finance"]["balance_minor"] - 20000
+    assert paid_bill["allocation"]["committed_minor"] == committed - 20000
+    purchase = client.post("/api/v2/invoices", json={
+        "purpose": "business", "items": [{"product_id": "cable", "quantity": 1}],
+    }).json()
+    payload = {"fingerprint": purchase["fingerprint"], "version": purchase["version"], "authorized": True}
+    path = f"/api/v2/invoices/{purchase['id']}/authorize"
+    result = client.post(path, json=payload).json()
+    if result.get("gateway") == "step_up":
+        result = client.post(path, json=payload | {"step_up_code": result["step_up_code_demo"]}).json()
+    assert result["ok"]
+    after = dashboard()
+    assert after["finance"]["balance_minor"] == paid_bill["finance"]["balance_minor"] - 29900
+    assert forecast()["opening_minor"] == after["finance"]["balance_minor"]
+    history = client.get("/api/v2/history").json()
+    assert len([row for row in history if row["description"] == f"Receipt for {inv['number']}"]) == 1
+    assert len([row for row in history if row["description"] == "Bill paid: Design supplies"]) == 1
+
+
+def test_money_summary_rolls_over_at_indian_midnight(client, monkeypatch):
+    from datetime import UTC, datetime
+    from app import finance
+    from app.db import SessionLocal
+    from app.models import LedgerEntry, User
+
+    class IndianMidnight(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 20, 19, tzinfo=UTC)
+
+    monkeypatch.setattr(finance, "datetime", IndianMidnight)
+    owner = "midnight-" + uuid.uuid4().hex
+    with SessionLocal() as db:
+        db.add(User(id=owner, name="Midnight test"))
+        db.flush()
+        for hour, minute, minor in [(10, 0, -10000), (18, 15, 50), (18, 45, -20000)]:
+            db.add(LedgerEntry(user_id=owner, payee="Test receipt", amount=minor / 100,
+                amount_minor=minor, currency="INR", purpose="business",
+                occurred_at=datetime(2026, 11, 20, hour, minute, tzinfo=UTC)))
+        db.flush()
+        result = finance.summary(db, owner, "business", days=1)
+        assert result["period_start"] == "2026-11-21"
+        assert result["opening_minor"] == 9950 and result["income_minor"] == 20000
+        assert result["balance_minor"] == 29950
+
+
 def test_reminder_contains_upi_link_with_balance(client):
     client.put("/api/v2/seller/settings", json={"upi_vpa": "meera.designs@okaxis", "payee_name": "Meera Design Studio", "opening_balance_minor": 0})
     customer = make_customer(client, "Ravi Kumar")

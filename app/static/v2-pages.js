@@ -26,6 +26,9 @@ function goalDetails(plan) {
 
 async function budgetPage() {
   const section = S.route[1];
+  if (S.profile.persona === "freelancer" && ["business", "forecast"].includes(section)) {
+    return navigate(section === "business" ? "seller" : "seller/forecast");
+  }
   if (section === "business") return businessPage();
   if (section === "allocation") return allocationPage();
   if (!section)
@@ -87,7 +90,7 @@ async function budgetPage() {
         (!S.route[2] || r.id === S.route[2]) &&
         (section !== "business-bills" || r.purpose === "business"),
     );
-    return `${back("budget")}${head("Bills & Commitments", "Recorded commitments", button("Add bill", "bill-dialog", "", "green"))}<section class="panel">${rows.map((r) => `<div class="list-row"><div><h3>${esc(r.title)}</h3><p>${date(r.due)} · ${esc(t(r.purpose === "business" ? "Business" : "Personal"))} · ${status(r.status)}</p></div><div class="list-amount">${money(r.amount_minor)}<div class="spacer"></div>${r.status === "open" ? `<div class="actions">${r.kind !== "emi" ? button("Edit bill", "bill-edit", r.id, "small ghost") : ""}${button("Record payment", "bill-pay", r.id, "small white")}</div>` : ""}</div></div>`).join("") || empty("budget", "Budget")}</section>`;
+    return `${back("budget")}${head("Bills & Commitments", "Recorded commitments", button("Add bill", "bill-dialog", "", "green"))}<section class="panel">${rows.map((r) => `<div class="list-row"><div><h3>${esc(r.title)}</h3><p>${date(r.due)} · ${esc(t(r.purpose === "business" ? "Business" : "Personal"))} · ${status(r.status)}</p></div><div class="list-amount">${money(r.amount_minor)}<div class="spacer"></div>${r.status === "open" ? `<div class="actions">${!["emi", "studio_bill"].includes(r.kind) ? button("Edit bill", "bill-edit", r.id, "small ghost") : ""}${r.kind === "studio_bill" ? link("Open bill", "seller/bills", "small white") : button("Record payment", "bill-pay", r.id, "small white")}</div>` : ""}</div></div>`).join("") || empty("budget", "Budget")}</section>`;
   }
   if (section === "forecast") {
     S.forecast = await api("/forecast");

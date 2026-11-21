@@ -150,7 +150,7 @@ async function api(path, body, method) {
     error.status = response.status;
     throw error;
   }
-  const changedRecords = /^\/(?:profile|history|bills|business|plans|watch|purchases)(?:\/|$)|^\/store-cart\//.test(path);
+  const changedRecords = /^\/(?:profile|history|bills|business|plans|watch|purchases|seller)(?:\/|$)|^\/store-cart\//.test(path);
   if (verb !== "GET" && (changedRecords || data?.status === "paid")) publishWorkspaceUpdate();
   return data;
 }
