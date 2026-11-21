@@ -22,6 +22,7 @@ const guide = (() => {
   let tourSeen = false;
   try { tourSeen = localStorage.getItem(tourStorageKey) === "seen"; } catch { /* Use in-memory state. */ }
   let minimized = false;
+  let openedByUser = false;
   const tourSteps = [
     { route: "home", selector: ".balance-card", title: "Start with your money", body: "Available funds shows your recorded cash. Available to spend accounts for bills and planned savings. Your to-do list puts urgent work first." },
     { route: "seller", selector: ".seller-stats", title: "See who owes you", body: "Back office shows business cash, unpaid invoices and overdue clients. Open an invoice from this page to follow up." },
@@ -416,6 +417,10 @@ const guide = (() => {
 
   function draw() {
     const panel = $("#visual-guide");
+    // Keep the assistant inside an open modal's accessible top layer, then
+    // return it to the page after the modal closes.
+    const host = $("#dialog").open ? $("#dialog") : document.body;
+    if (host?.append && panel.parentElement !== host) host.append(panel);
     const writing = window.ContextIQTaraWidget?.captureFocus();
     removeHighlight();
     const target = current && $(current.selector);
@@ -430,9 +435,9 @@ const guide = (() => {
       openAlert = current.id;
       rememberAlert(current.id);
     }
-    panel.hidden = !current || $("#dialog").open;
-    const open = !panel.hidden && !minimized && !paused && !dismissed.has(current.id)
-      && (current.tour || (current.alert && openAlert === current.id) || openTip === current.id);
+    panel.hidden = !current;
+    const open = !panel.hidden && !minimized && (openedByUser || (!paused && !dismissed.has(current.id)
+      && (current.tour || (current.alert && openAlert === current.id) || openTip === current.id)));
     panel.toggleAttribute("data-urgent-alert", Boolean(current?.alert && open));
     panel.toggleAttribute("data-open", open);
     panel.toggleAttribute("data-minimized", !open);
@@ -495,6 +500,11 @@ const guide = (() => {
   }
 
   function update() {
+    if ($("#dialog").open) {
+      current = cue("dialog-help", "#dialog-content", "Tara is here to help", "Ask about this form or your records here. Review any changes before saving; payments still need your approval.");
+      draw();
+      return;
+    }
     if (!tourSeen && !paused && S.csrf && S.profile.onboarded && S.route[0] === "home") {
       rememberTour();
       paused = false;
@@ -533,6 +543,7 @@ const guide = (() => {
     if (!command || !current) return;
     if (command === "minimize" || command === "dismiss") {
       minimized = true;
+      openedByUser = false;
       draw();
       $('[data-guide="open"]', $("#visual-guide"))?.focus();
       return;
@@ -569,6 +580,7 @@ const guide = (() => {
     if (current.alert) openAlert = null;
     if (command === "open") {
       minimized = false;
+      openedByUser = true;
       paused = false;
       openTip = current.id;
       dismissed.delete(current.id);

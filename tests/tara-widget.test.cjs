@@ -36,7 +36,7 @@ function dragTo(app, x, y) {
 
 test('cursor dragging reaches all four corners without settings or dropdowns', () => {
   const app = setup();
-  for (const [corner,x,y] of [['tl',12,12],['tr',608,12],['bl',12,368],['br',608,368]]) {
+  for (const [corner,x,y] of [['tl',12,12],['tr',668,12],['bl',12,368],['br',668,368]]) {
     dragTo(app,x,y);
     assert.equal(parseFloat(app.panel.style.left),x);
     assert.equal(parseFloat(app.panel.style.top),y);
@@ -67,6 +67,7 @@ test('the minimized bubble can be dragged and stays on screen', () => {
 
 test('inline questions reuse owned Ask Tara with evidence and never change the page', async () => {
   const app = setup(); let body;
+  assert.match(app.panel.html,/class="tara-open-ask" href="#\/ask">Open Ask Tara/);
   app.context.api=async(path,data)=>{assert.equal(path,'/ask');body=data;return {answer:'Owned cash',analysis:{records:['owned evidence']}};};
   await app.widget.ask('How is my financial condition?');
   assert.equal(body.message,'How is my financial condition?');

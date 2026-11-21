@@ -478,3 +478,15 @@ body:has(#visual-guide[data-open]) #main {
 
 #visual-guide .guide-top { cursor: grab; touch-action: none; user-select: none; }
 #visual-guide .guide-top:active { cursor: grabbing; }
+
+.tara-open-ask { display: block; width: fit-content; margin: 6px 0 10px auto; font-size: 12px; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Compact by default; cursor resizing can still enlarge the assistant. */
+#visual-guide:not([data-tour]) .guide-top { padding: 5px 10px 5px 12px; font-size: 12px; }
+#visual-guide:not([data-tour]) .guide-copy { padding: 10px 12px 0; }
+#visual-guide:not([data-tour]) .guide-copy h2 { font-size: 15px; }
+#visual-guide:not([data-tour]) .guide-copy p { font-size: 12px; }
+#visual-guide:not([data-tour]) .guide-controls { padding: 8px 12px; }
+.tara-widget-chat { padding-inline: 12px; }
+.tara-inline-thread { max-height: 190px; }
+.tara-open-ask { margin-block: 3px 7px; font-size: 11px; }

@@ -3,11 +3,16 @@
 // Page-independent presentation and chat. Financial answers use the same owned,
 // privacy-aware /ask endpoint as Ask Tara; this widget cannot authorize payments.
 window.ContextIQTaraWidget = (() => {
-  const key = "contextiq.tara-position.v1";
+  const key = "contextiq.tara-position.v2";
   let geometry = null, panel = null, owner = null, rows = [], draft = "", pending = false;
   let requestNumber = 0, drag = null, suppressClick = false;
   try {
-    const saved = JSON.parse(localStorage.getItem(key) || "null");
+    const current = localStorage.getItem(key);
+    const saved = JSON.parse(current || localStorage.getItem("contextiq.tara-position.v1") || "null");
+    if (saved && !current) {
+      saved.width = Math.min(saved.width, 320);
+      if (Number.isFinite(saved.height)) saved.height = Math.min(saved.height, 420);
+    }
     if (saved && [saved.x, saved.y, saved.width].every(Number.isFinite)
         && saved.x >= 0 && saved.x <= 1 && saved.y >= 0 && saved.y <= 1)
       geometry = saved;
@@ -37,7 +42,7 @@ window.ContextIQTaraWidget = (() => {
       target.style.left = `${clamp(rect.left, 12, view.width - rect.width - 12)}px`;
       return;
     }
-    const width = small ? 56 : clamp(geometry?.width || 380, Math.min(300, view.width - 24), view.width - 24);
+    const width = small ? 56 : clamp(geometry?.width || 320, Math.min(300, view.width - 24), view.width - 24);
     target.style.width = `${width}px`;
     if (!small && Number.isFinite(geometry?.height))
       target.style.height = `${clamp(geometry.height, Math.min(300, view.height - view.bottom - 12), view.height - view.bottom - 12)}px`;
@@ -97,7 +102,7 @@ window.ContextIQTaraWidget = (() => {
   function mount(target, {open = false, tour = false} = {}) {
     panel = target; resetSession();
     if (open && !panel.querySelector(".tara-widget-chat")) {
-      panel.insertAdjacentHTML("beforeend", `<section class="tara-widget-chat" aria-label="Ask Tara here"><div class="tara-inline-thread" role="log" aria-label="Conversation with Tara" aria-live="polite"></div><form data-tara-chat><label for="tara-inline-question">Ask Tara without leaving this page</label><div class="tara-composer"><input id="tara-inline-question" data-tara-message name="message" maxlength="2000" required placeholder="Ask about your records…" autocomplete="off"><button type="submit" data-tara-send>Send ↗</button></div><p>${S.csrf ? 'Uses your AI privacy choice. <a href="#/transparency">AI &amp; Privacy</a>' : "Start a private demo for answers from your records."}</p></form></section><button class="tara-resize" type="button" data-tara-resize aria-label="Resize Tara: drag or use arrow keys" title="Drag to resize; arrow keys also work">↘</button>`);
+      panel.insertAdjacentHTML("beforeend", `<section class="tara-widget-chat" aria-label="Ask Tara here">${S.csrf ? '<a class="tara-open-ask" href="#/ask">Open Ask Tara ↗</a>' : ""}<div class="tara-inline-thread" role="log" aria-label="Conversation with Tara" aria-live="polite"></div><form data-tara-chat><label for="tara-inline-question">Ask Tara without leaving this page</label><div class="tara-composer"><input id="tara-inline-question" data-tara-message name="message" maxlength="2000" required placeholder="Ask about your records…" autocomplete="off"><button type="submit" data-tara-send>Send ↗</button></div><p>${S.csrf ? 'Uses your AI privacy choice. <a href="#/transparency">AI &amp; Privacy</a>' : "Start a private demo for answers from your records."}</p></form></section><button class="tara-resize" type="button" data-tara-resize aria-label="Resize Tara: drag or use arrow keys" title="Drag to resize; arrow keys also work">↘</button>`);
       const heading = panel.querySelector(".guide-top > span");
       if (heading) { heading.classList.add("tara-drag-handle"); heading.title = "Drag Tara to move it"; }
       renderChat();
@@ -134,7 +139,7 @@ window.ContextIQTaraWidget = (() => {
     if (drag.resize) setSize(drag.rect.width + dx, drag.rect.height + dy);
     else {
       const maxX = Math.max(1, view.width - drag.rect.width - 24), maxY = Math.max(1, view.height - drag.rect.height - view.bottom - 12);
-      geometry = {...geometry, width: geometry?.width || (widget.hasAttribute("data-open") ? drag.rect.width : 380),
+      geometry = {...geometry, width: geometry?.width || (widget.hasAttribute("data-open") ? drag.rect.width : 320),
         x: clamp((drag.rect.left + dx - 12) / maxX, 0, 1), y: clamp((drag.rect.top + dy - 12) / maxY, 0, 1)};
       place();
     }

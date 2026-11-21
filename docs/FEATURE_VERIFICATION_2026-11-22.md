@@ -42,7 +42,7 @@ restart stability and rejection of weak secrets.
 
 Test inventory: 35 purchase/budget checks, 24 seller checks, 15 operations checks,
 42 legacy flow checks, 6 experience checks, 2 PostgreSQL integration checks and
-31 JavaScript checks: **155 automated checks**, plus builds and the restore drill.
+33 JavaScript checks: **157 automated checks**, plus builds and the restore drill.
 Python files run in separate processes because each owns its test database settings.
 
 ## Verification limits
@@ -73,7 +73,10 @@ all 20 submissions rather than reducing the test load.
 ## Movable inline Tara widget
 
 The widget is available on all ContextIQ page routes, welcome, onboarding and page
-errors. It pauses behind modal dialogs so their keyboard focus remains contained.
+errors. Inside modal dialogs it moves into the dialog’s accessible layer and returns
+to the page when the dialog closes. An explicitly opened assistant stays expanded
+across page changes. The default width is 320 px, and Open Ask Tara links directly
+to the dedicated Ask page.
 Drag the header or minimized bubble to any position or corner, and drag
 the resize grip (arrow keys also work). There are no Dock or Reset settings. Only geometry is saved in browser storage.
 The current conversation and draft stay in memory across page changes and clear on

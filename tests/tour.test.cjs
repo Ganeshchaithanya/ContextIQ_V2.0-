@@ -229,3 +229,26 @@ test("Tara is available across every app section, welcome and onboarding", () =>
   app.context.S.csrf='new';app.context.S.profile.onboarded=false;app.update();
   assert.equal(app.query('#visual-guide').hidden,false,'onboarding');
 });
+
+test("an opened Tara stays expanded when navigating to another page", () => {
+  const app=setup({"contextiq.tara-tour.v2":"seen"});
+  app.update();app.click('open');
+  for (const page of ['budget','seller','ask','preferences']) {
+    app.context.S.route=[page];app.update();
+    assert(app.query('#visual-guide').attributes.has('data-open'),page);
+  }
+});
+
+test("Tara stays inside a modal's accessible layer and returns to the page afterward", () => {
+  const app=setup({"contextiq.tara-tour.v2":"seen"});
+  const body={append(node){node.parentElement=this;}};
+  const dialog=app.query('#dialog');dialog.append=function(node){node.parentElement=this;};
+  app.context.document.body=body;
+  app.update();app.click('open');
+  dialog.open=true;app.update();
+  const panel=app.query('#visual-guide');
+  assert.equal(panel.hidden,false);assert.equal(panel.parentElement,dialog);
+  assert.match(panel.innerHTML,/Tara is here to help/);
+  dialog.open=false;app.update();
+  assert.equal(panel.parentElement,body);assert(panel.attributes.has('data-open'));
+});
