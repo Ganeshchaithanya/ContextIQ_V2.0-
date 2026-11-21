@@ -163,7 +163,7 @@ window.ContextIQTaraWidget = (() => {
       if (notice.dataset.prioritySignature !== signature) {
         const previous = notice.querySelector("details"), wasOpen = previous?.open;
         const same = notice.dataset.priorityId === priority?.id;
-        notice.innerHTML = priority ? `<details ${same && wasOpen ? "open" : ""}><summary><span class="tara-priority-tone" data-tone="${escape(priority.tone)}">${escape(priority.label)}</span><span class="tara-priority-title">${escape(priority.title)}</span></summary><p>${escape(priority.body)}</p>${priorityStatus === "error" ? "<p>Refresh unavailable · showing the previous priority.</p>" : ""}<a href="${escape(priority.destination)}">Review priority ↗</a></details>`
+        notice.innerHTML = priority ? `<details data-priority-tone="${escape(priority.tone)}" ${same && wasOpen ? "open" : ""}><summary><span class="tara-priority-tone" data-tone="${escape(priority.tone)}">${escape(priority.label)}</span><span class="tara-priority-title">${escape(priority.title)}</span></summary><p>${escape(priority.body)}</p>${priorityStatus === "error" ? "<p>Refresh unavailable · showing the previous priority.</p>" : ""}<a href="${escape(priority.destination)}">Review priority ↗</a></details>`
           : `<p>${!S.csrf ? "Your guide, on every page" : priorityStatus === "ready" ? "No pending priorities in your recorded list" : priorityStatus === "error" ? "Priorities temporarily unavailable" : "Checking priorities…"}</p>`;
         notice.dataset.prioritySignature = signature; notice.dataset.priorityId = priority?.id || "";
       }
@@ -239,12 +239,14 @@ window.ContextIQTaraWidget = (() => {
     if (!resize && !event.target.closest(".guide-top, .guide-launch")) return;
     const rect = widget.getBoundingClientRect();
     drag = {id: event.pointerId, x: event.clientX, y: event.clientY, rect, resize: Boolean(resize), corner: resize?.dataset?.taraCorner || "se", moved: false, collapse: false};
-    widget.setPointerCapture(event.pointerId);
   });
   widget.addEventListener("pointermove", event => {
     if (!drag || event.pointerId !== drag.id) return;
     const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
-    if (Math.abs(dx) + Math.abs(dy) < 5 && !drag.moved) return;
+    if (Math.hypot(dx, dy) < 6 && !drag.moved) return;
+    // Capturing on pointerdown retargets an ordinary button click to the aside,
+    // so the guide's delegated Open button never receives that click.
+    if (!drag.moved) widget.setPointerCapture(event.pointerId);
     drag.moved = true; event.preventDefault();
     const view = viewport();
     if (drag.resize) {

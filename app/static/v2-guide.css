@@ -552,3 +552,10 @@ body:has(#visual-guide[data-open]) #main {
 @keyframes tara-message-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes tara-thinking { 0%,70%,100% { transform: translateY(0); opacity: .45; } 35% { transform: translateY(-3px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #visual-guide .tara-widget-chat textarea { transition: none; } }
+
+/* Apple-green urgency keeps the priority explicit without changing the composer. */
+#visual-guide .tara-notification details[data-priority-tone="urgent"] { background: linear-gradient(125deg, #dbf5ae, #eff9dc); border: 1px solid #bedc87; border-left: 3px solid #8bc433; border-radius: 12px; padding: 2px 9px 7px; box-shadow: 0 2px 8px #81b4360d; }
+#visual-guide .tara-notification details[data-priority-tone="urgent"] .tara-priority-title { color: #294019; font-weight: 600; }
+#visual-guide .tara-notification details[data-priority-tone="urgent"] > p { color: #4a6234; }
+#visual-guide .tara-priority-tone[data-tone="urgent"] { background: #b5e46c; color: #26420f; }
+#visual-guide .tara-priority-count:not([hidden]) { background: #a8df4d; color: #243b12; box-shadow: 0 0 0 2px #dff1c2; font-weight: 750; }

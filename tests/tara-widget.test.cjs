@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 function setup() {
-  const events = new Map(), storage = new Map(), attrs = new Set(['data-open']);
+  const events = new Map(), storage = new Map(), attrs = new Set(['data-open']), captures=[];
   const thread = {innerHTML:'',scrollTop:0}, field = {value:'',selectionStart:0,selectionEnd:0,setSelectionRange(start,end){this.selectionStart=start;this.selectionEnd=end;}}, send = {}, heading = {classList:{add(){}}};
   const notice={innerHTML:'',dataset:{},querySelector(){return null;}}, badge={hidden:true,setAttribute(){}};
   const body={querySelector:selector=>selector==='.tara-notification'?notice:null};
@@ -18,7 +18,7 @@ function setup() {
     insertAdjacentHTML(_, html){this.html += html; mounted = true;},
     append(node){assert.equal(node,body);mounted=true;this.restoredBody=node;},
     querySelector(selector){return ({'.tara-inline-thread':thread,'[data-tara-message]':field,'[data-tara-send]':send,'.guide-top > span':heading,'.tara-widget-chat':mounted ? {} : null,'.tara-widget-body':mounted?body:null,'.tara-notification':notice,'.tara-priority-count':badge})[selector]||null;},
-    addEventListener(name, fn, capture){events.set(name+!!capture,fn);}, setPointerCapture(){},
+    addEventListener(name, fn, capture){events.set(name+!!capture,fn);}, setPointerCapture(id){captures.push(id);},
   };
   const context = {S:{csrf:'fictional',route:['budget']}, document:{hidden:true,querySelector:()=>panel},
     guide:{minimize(){attrs.delete('data-open');context.window.ContextIQTaraWidget.mount(panel,{open:false});}},
@@ -30,7 +30,7 @@ function setup() {
   vm.runInContext(fs.readFileSync('app/static/v2-tara-widget.js','utf8'),context);
   const widget = context.window.ContextIQTaraWidget;
   widget.mount(panel,{open:true});
-  return {context,widget,panel,thread,field,send,events,storage,attrs,notice,badge,body,hideDom(){mounted=false;}};
+  return {context,widget,panel,thread,field,send,events,storage,attrs,notice,badge,body,captures,hideDom(){mounted=false;}};
 }
 
 function dragTo(app, x, y) {
@@ -69,6 +69,17 @@ test('the minimized bubble can be dragged and stays on screen', () => {
   assert(parseFloat(app.panel.style.left)>=12);
   assert(parseFloat(app.panel.style.top)>=12);
   assert.equal(parseFloat(app.panel.style.width),56);
+  assert.deepEqual(app.captures,[1]);
+});
+
+test('a stationary bubble click reaches Open without being captured or suppressed as a drag', () => {
+  const app=setup();app.attrs.delete('data-open');app.widget.mount(app.panel,{open:false});
+  const target={closest:selector=>selector.includes('.guide-launch')?{}:null};
+  app.events.get('pointerdownfalse')({button:0,pointerId:4,clientX:900,clientY:700,target});
+  app.events.get('pointermovefalse')({pointerId:4,clientX:902,clientY:702,preventDefault(){throw new Error('Small click jitter must not start a drag');}});
+  app.events.get('pointerupfalse')({pointerId:4});
+  assert.deepEqual(app.captures,[]);
+  app.events.get('clicktrue')({target,preventDefault(){throw new Error('Click must reach Open');},stopImmediatePropagation(){throw new Error('Click must reach Open');}});
 });
 
 test('inline questions reuse owned Ask Tara with evidence and never change the page', async () => {
