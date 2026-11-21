@@ -15,8 +15,10 @@ const guide = (() => {
   let highlighted = null;
   let openTip = null;
   let openAlert = null;
-  const tourStorageKey = "contextiq.tara-tour.v1";
+  const tourStorageKey = "contextiq.tara-tour.v2";
   let tourIndex = null;
+  let spotlightStep = null;
+  let spotlightFrame = null;
   let tourSeen = false;
   try { tourSeen = localStorage.getItem(tourStorageKey) === "seen"; } catch { /* Use session state. */ }
   const tourSteps = [
@@ -24,7 +26,7 @@ const guide = (() => {
     { route: "seller", selector: ".seller-stats", title: "See who owes you", body: "Back office shows business cash, unpaid invoices and overdue clients. Open an invoice from this page to follow up." },
     { route: "seller/invoices", selector: '#main a[href="#/seller/invoices/new"]', title: "Create and track an invoice", body: "Choose New invoice, add your client and work, then review the draft. Record each payment after it reaches you." },
     { route: "seller/forecast", selector: "#seller-whatif-customer", title: "Plan before cash gets tight", body: "Choose 30, 60 or 90 days. Test a client paying late to see how your cash position changes before you make a decision." },
-    { route: "budget/allocation", selector: "#main .panel", title: "Check what is safe to spend", body: "Budget uses the same money records as Back office. Bills come first, followed by your reserves and savings plans." },
+    { route: "budget/allocation", selector: "#main .panel .section-top", title: "Check what is safe to spend", body: "Budget uses the same money records as Back office. Bills come first, followed by your reserves and savings plans." },
     { route: "purchases", selector: '#main a[href="#/purchases/before"]', title: "Review a purchase before paying", body: "Track prices before buying. At checkout, review the exact recipient and amount, choose a method, and decide whether to approve or decline." },
     { route: "knowledge", selector: "#knowledge-search", title: "Find an explanation when you need it", body: "Search the knowledge base for payment, invoice and cash-flow guides. Each guide shows its source and review date. You can replay this tour from Home." },
   ];
@@ -334,7 +336,58 @@ const guide = (() => {
 
   function removeHighlight() {
     highlighted?.classList.remove("guide-target");
+    highlighted?.classList.remove("guide-tour-target");
     highlighted = null;
+  }
+
+  function hideSpotlight() {
+    $("#tour-spotlight").hidden = true;
+    const panel = $("#visual-guide");
+    panel.removeAttribute("data-tour");
+    for (const property of ["top", "left", "right", "bottom", "width"])
+      panel.style.removeProperty(property);
+    spotlightStep = null;
+  }
+
+  function positionSpotlight() {
+    if (!current?.tour || $("#visual-guide").hidden || $("#dialog").open) return;
+    const target = $(current.selector);
+    const spot = $("#tour-spotlight");
+    const panel = $("#visual-guide");
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const margin = 12, gap = 18, width = Math.min(360, vw - margin * 2);
+    panel.style.width = `${width}px`;
+    const height = Math.min(panel.getBoundingClientRect().height || 300, vh - margin * 2);
+    const rect = target?.getBoundingClientRect();
+    const visible = rect && rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < vh && rect.right > 0 && rect.left < vw;
+    spot.hidden = !visible;
+    const clamp = (value, low, high) => Math.max(low, Math.min(value, Math.max(low, high)));
+    let left = vw - width - margin, top = vh - height - margin;
+    if (visible) {
+      const x = clamp(rect.left - 8, 4, vw - 4), y = clamp(rect.top - 8, 4, vh - 4);
+      Object.assign(spot.style, { left: `${x}px`, top: `${y}px`,
+        width: `${Math.max(0, Math.min(vw - 4, rect.right + 8) - x)}px`,
+        height: `${Math.max(0, Math.min(vh - 4, rect.bottom + 8) - y)}px` });
+      if (vh - rect.bottom - gap >= height) {
+        left = rect.left; top = rect.bottom + gap;
+      } else if (rect.top - gap >= height) {
+        left = rect.left; top = rect.top - height - gap;
+      } else if (vw - rect.right - gap >= width) {
+        left = rect.right + gap; top = rect.top;
+      } else if (rect.left - gap >= width) {
+        left = rect.left - width - gap; top = rect.top;
+      }
+    }
+    Object.assign(panel.style, {left: `${clamp(left, margin, vw - width - margin)}px`,
+      top: `${clamp(top, margin, vh - height - margin)}px`, right: "auto", bottom: "auto"});
+  }
+
+  function scheduleSpotlight() {
+    if (!current?.tour || spotlightFrame !== null) return;
+    spotlightFrame = window.requestAnimationFrame(() => {
+      spotlightFrame = null;
+      positionSpotlight();
+    });
   }
 
   function draw() {
@@ -360,6 +413,7 @@ const guide = (() => {
       "data-urgent-alert",
       Boolean(current?.alert && !panel.hidden),
     );
+    if (!current?.tour || panel.hidden) hideSpotlight();
     if (panel.hidden) {
       panel.removeAttribute("data-open");
       panel.textContent = "";
@@ -381,7 +435,15 @@ const guide = (() => {
     panel.setAttribute("aria-label", t("Tara, your visual guide"));
     panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">${current.alert ? "◴" : "✦"}</span> ${esc(current.alert ? `Tara · ${current.alert.label}` : t("Tara, your visual guide"))}</span><button type="button" class="guide-close" data-guide="dismiss" aria-label="${esc(t("Dismiss this tip"))}">×</button></div><div class="guide-copy" role="status" aria-live="polite"><h2>${esc(current.title)}</h2><p>${esc(current.body)}</p></div><div class="guide-controls"><button type="button" class="btn green small" data-guide="show">${esc(t("Show me"))} <span aria-hidden="true">↗</span></button><button type="button" class="guide-pause" data-guide="pause">${esc(t("Pause tips"))}</button></div>`;
     if (current.tour) {
+      panel.setAttribute("data-tour", "");
+      highlighted.classList.add("guide-tour-target");
       panel.querySelector(".guide-controls").innerHTML = `<div class="guide-tour-status"><span>Step ${tourIndex + 1} of ${tourSteps.length}</span><button type="button" class="guide-pause" data-guide="show">Show me</button></div><div class="guide-tour-buttons"><button type="button" class="btn white small" data-guide="tour-back" ${tourIndex === 0 ? "disabled" : ""}>Back</button><button type="button" class="btn green small" data-guide="tour-next">${tourIndex === tourSteps.length - 1 ? "Finish tour" : "Next"}</button><button type="button" class="guide-pause" data-guide="tour-skip">Skip tour</button></div>`;
+      if (spotlightStep !== current.id) {
+        spotlightStep = current.id;
+        target.scrollIntoView({block: "start", behavior: "instant"});
+        panel.querySelector('[data-guide="tour-next"]').focus({preventScroll: true});
+      }
+      positionSpotlight();
     }
   }
 
@@ -523,5 +585,15 @@ const guide = (() => {
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-guide-start]")) startTour();
   });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && tourIndex !== null && !$("#dialog").open) {
+      event.preventDefault();
+      tourIndex = null;
+      rememberTour();
+      update();
+    }
+  });
+  window.addEventListener("resize", scheduleSpotlight);
+  window.addEventListener("scroll", scheduleSpotlight, {passive: true});
   return { update, clear, refreshHomeFocus, startTour };
 })();
