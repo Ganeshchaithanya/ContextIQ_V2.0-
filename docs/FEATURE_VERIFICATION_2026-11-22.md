@@ -26,7 +26,7 @@ external service has been verified.
 | QR to app payment-code entry | PASS | Actual generated QR image decoded independently; HTTPS app link, escaped prefilled code, signature/version/expiry and cross-workspace denial. Client UPI QR also links to app entry. Physical phone camera testing remains unverified. |
 | Post-purchase support | PASS | Delivery, return/replacement windows, warranties, partial refunds and evidence briefcase. Seller actions are simulated. |
 | Tara answers and knowledge base | PASS | Recorded calculations, owned evidence, multilingual responses, reviewed source guides, model intent routing and safe fallback; external model tests use mocks. |
-| Tara visual guide and to-do list | PASS | Automatic seven-step tour for first-time users only, manual Next/Back with no timer, replay and skip/Escape; minimize to a persistent message bubble and reopen the same step; responsive spotlight, recommendation glow and anonymous code-entry cue. User pause/dismiss choices remain respected. |
+| Tara visual guide and to-do list | PASS | Automatic seven-step tour for first-time users only, manual Next/Back with no timer, replay and skip/Escape; minimize to a persistent message bubble and reopen the same step; drag, resize and dock to four corners; ask directly in the widget with owned evidence, cross-page conversation continuity and logout isolation; responsive spotlight, recommendation glow and anonymous code-entry cue. User pause/dismiss choices remain respected. |
 | AI/privacy visibility | PASS | Collapsible impact panel retains its open/closed state when data refreshes.  Actual allocation/priorities/watch/run counts, routing provenance, heartbeat and question-text model opt-out. Opt-out persists when unrelated profile settings change. Generic predefined guide hints are separately disclosed. |
 
 ## Reliability and security checks
@@ -42,7 +42,7 @@ restart stability and rejection of weak secrets.
 
 Test inventory: 35 purchase/budget checks, 24 seller checks, 15 operations checks,
 42 legacy flow checks, 6 experience checks, 2 PostgreSQL integration checks and
-19 JavaScript checks: **143 automated checks**, plus builds and the restore drill.
+31 JavaScript checks: **155 automated checks**, plus builds and the restore drill.
 Python files run in separate processes because each owns its test database settings.
 
 ## Verification limits
@@ -68,3 +68,20 @@ The expanded Linux CI stress check initially exposed pool starvation at 20 concu
 submissions. The fix queues mutations asynchronously before connection checkout and
 performs session validation outside the request event loop; the regression retains
 all 20 submissions rather than reducing the test load.
+
+
+## Movable inline Tara widget
+
+The widget is available on all ContextIQ page routes, welcome, onboarding and page
+errors. It pauses behind modal dialogs so their keyboard focus remains contained.
+Drag the heading or minimized bubble, use the Dock selector for any corner, or drag
+the resize grip (arrow keys also work). Only geometry is saved in browser storage.
+The current conversation and draft stay in memory across page changes and clear on
+session changes. Questions use the same authenticated, privacy-aware `/api/v2/ask`
+endpoint and evidence renderer as the dedicated Ask page. Welcome help is local
+navigation guidance and does not call the model or read private records.
+
+The widget does not inject into the separate BrightMart website or arbitrary third-
+party sites. It does not authorize payments. Browser/device interaction still needs
+a physical UI check; DOM, pointer, keyboard, boundary, privacy and API paths are covered
+by the automated checks described above.

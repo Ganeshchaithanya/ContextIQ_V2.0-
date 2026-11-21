@@ -206,13 +206,12 @@ const guide = (() => {
   function pageCue() {
     if (S.route[0] === "scan" && $("#token"))
       return cue("scan-entry", "#token", "Your payment starts here", "Paste or type the code, then verify the recipient and amount. Opening this page never approves a payment.");
-    if (
-      !S.csrf ||
-      !S.profile.onboarded ||
-      !$("#main") ||
-      $("#main .error-page")
-    )
-      return null;
+    if (!S.csrf)
+      return cue("welcome", ".welcome-form", "Welcome to ContextIQ", "Start Meera’s private demo to explore cash, invoices and purchase planning. You can ask navigation questions here.");
+    if (!S.profile.onboarded)
+      return cue("setup", ".onboard", "Make this workspace yours", "Choose your language and preferences. Tara will help you find the right page, while you keep control of payments.");
+    if (!$("#main") || $("#main .error-page"))
+      return cue("page-help", "#app", "Tara is still here", "Retry the page or return Home. You can ask about your records here without leaving this screen.");
     const [page, section] = S.route;
     if (page === "seller") {
       if (!section) {
@@ -404,6 +403,7 @@ const guide = (() => {
     }
     Object.assign(panel.style, {left: `${clamp(left, margin, vw - width - margin)}px`,
       top: `${clamp(top, margin, vh - height - margin)}px`, right: "auto", bottom: "auto"});
+    window.ContextIQTaraWidget?.place(panel, true);
   }
 
   function scheduleSpotlight() {
@@ -416,6 +416,7 @@ const guide = (() => {
 
   function draw() {
     const panel = $("#visual-guide");
+    const writing = window.ContextIQTaraWidget?.captureFocus();
     removeHighlight();
     const target = current && $(current.selector);
     if (
@@ -442,10 +443,12 @@ const guide = (() => {
     }
     if (!open) {
       panel.innerHTML = `<button type="button" class="guide-launch" data-guide="open" aria-label="Open Tara visual guide" aria-expanded="false" title="Open Tara"><svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8H5l-3 2v-10a9 9 0 0 1 18 0Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m12 6 1.2 3.3 3.3 1.2-3.3 1.2L12 15l-1.2-3.3L7.5 10.5l3.3-1.2Z" fill="currentColor"/></svg></button>`;
+      window.ContextIQTaraWidget?.mount(panel, {open: false});
       return;
     }
     if (!target) {
-      panel.innerHTML = `<button type="button" class="guide-launch" data-guide="minimize" aria-label="Minimize Tara">✦ Tara</button>`;
+      panel.innerHTML = `<div class="guide-top"><span>Tara · Ask me here</span><button class="guide-close" type="button" data-guide="minimize" aria-label="Minimize Tara">−</button></div>`;
+      window.ContextIQTaraWidget?.mount(panel, {open: true});
       return;
     }
 
@@ -464,6 +467,8 @@ const guide = (() => {
       }
       positionSpotlight();
     }
+    window.ContextIQTaraWidget?.mount(panel, {open: true, tour: Boolean(current.tour)});
+    window.ContextIQTaraWidget?.restoreFocus(writing);
   }
 
   async function updateNextTip() {
@@ -511,6 +516,7 @@ const guide = (() => {
   }
 
   function clear() {
+    window.ContextIQTaraWidget?.resetSession();
     removeHighlight();
     hideSpotlight();
     if (!S.csrf || !S.profile.onboarded) {

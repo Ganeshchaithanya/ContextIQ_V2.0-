@@ -451,3 +451,31 @@ body:has(#visual-guide[data-open]) #main {
   0%, 100% { box-shadow: 0 0 0 3px #a8e63d25; }
   50% { box-shadow: 0 0 0 7px #a8e63d55; background-color: #e9f7d8; }
 }
+
+/* Movable assistant: only the heading, bubble and resize grip capture drags. */
+#visual-guide[data-open] { max-height: calc(100dvh - 24px); overflow: auto; min-width: min(300px, calc(100vw - 24px)); }
+.tara-drag-handle, .guide-launch, .tara-resize { touch-action: none; }
+.tara-drag-handle { cursor: grab; user-select: none; flex: 1; }
+.tara-drag-handle:active { cursor: grabbing; }
+#visual-guide .guide-top { position: sticky; top: 0; z-index: 2; }
+.tara-placement { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #dae4d0; padding: 9px 15px; font-size: 11px; }
+.tara-placement select { max-width: 150px; padding: 5px; border: 1px solid #bdcbb1; border-radius: 6px; background: #f7faf2; color: #263620; font: inherit; }
+.tara-placement button { background: transparent; border: 0; text-decoration: underline; color: inherit; font: inherit; padding: 5px; cursor: pointer; }
+.tara-widget-chat { padding: 0 14px 10px; }
+.tara-inline-thread { max-height: 230px; overflow: auto; overflow-wrap: anywhere; }
+.tara-inline-thread:empty { display: none; }
+#visual-guide .tara-inline-thread .message { max-width: 100%; margin: 8px 0; padding: 12px; font-size: 12px; border-radius: 10px; }
+#visual-guide .tara-inline-thread .answer-copy { font-size: 12px; line-height: 1.65; }
+#visual-guide .tara-inline-thread .answer-proof { padding: 10px; }
+#visual-guide .tara-inline-thread .answer-proof h3 { font-size: 13px; }
+.tara-widget-chat label { display: block; font-size: 12px; font-weight: 650; margin: 10px 0 8px; }
+.tara-composer { display: flex; gap: 6px; }
+.tara-composer input { min-width: 0; width: 100%; font: inherit; font-size: 13px; padding: 10px; border: 1px solid #bdcbb1; border-radius: 8px; background: #fff; color: #162010; }
+.tara-composer button { flex-shrink: 0; padding: 10px; border: 0; border-radius: 8px; background: #a8e63d; color: #172018; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.tara-composer button:disabled { opacity: .55; cursor: wait; }
+.tara-widget-chat form > p, .tara-wait { font-size: 10px; color: #627057; margin: 8px 0 0; line-height: 1.5; }
+.tara-widget-chat form > p a { text-decoration: underline; }
+.tara-resize { display: block; margin: 0 2px 2px auto; border: 0; background: transparent; color: #66795a; width: 28px; height: 25px; cursor: nwse-resize; }
+#visual-guide[data-tour] .tara-placement { border-color: #526746; color: #d2e5c2; }
+#visual-guide[data-tour] .tara-widget-chat form > p { color: #becfae; }
+#visual-guide[data-tour] .tara-inline-thread { color: #172018; }

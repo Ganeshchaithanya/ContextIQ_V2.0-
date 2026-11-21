@@ -217,3 +217,15 @@ test("Tara remains available when an invoice has no actionable payment", () => {
   assert.equal(app.query("#visual-guide").hidden, false);
   assert.match(app.query("#visual-guide").innerHTML, /Open Tara visual guide/);
 });
+
+test("Tara is available across every app section, welcome and onboarding", () => {
+  const app=setup({"contextiq.tara-tour.v2":"seen"});
+  for (const page of ['home','seller','budget','purchases','activity','ask','knowledge','transparency','preferences','scan','invoice','watch','notifications']) {
+    app.context.S.route=[page];app.update();
+    assert.equal(app.query('#visual-guide').hidden,false,page);
+  }
+  app.context.S.route=['home'];app.context.S.csrf='';app.update();
+  assert.equal(app.query('#visual-guide').hidden,false,'welcome');
+  app.context.S.csrf='new';app.context.S.profile.onboarded=false;app.update();
+  assert.equal(app.query('#visual-guide').hidden,false,'onboarding');
+});

@@ -69,4 +69,4 @@ jobs:
         env:
           RENDER_APP_URL: https://contextiq.example.com
       - run: node build-contextiq.mjs
-      - run: node --test tests/tour.test.cjs tests/experience.test.cjs
+      - run: node --test tests/tour.test.cjs tests/experience.test.cjs tests/tara-widget.test.cjs

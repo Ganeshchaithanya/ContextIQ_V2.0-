@@ -280,8 +280,8 @@ async function render() {
     guide.update();
     return;
   }
-  if (!S.csrf) return welcome();
-  if (!S.profile.onboarded) return onboarding();
+  if (!S.csrf) { welcome(); guide.update(); return; }
+  if (!S.profile.onboarded) { onboarding(); guide.update(); return; }
   if (S.route[0] === "store") return window.location.assign("/store");
   if (S.route[0] === "cart") return navigate("purchases/before");
   const renderId = (S.renderId = (S.renderId || 0) + 1);
@@ -329,5 +329,6 @@ async function render() {
     if (renderId !== S.renderId) return;
     $("#main").innerHTML =
       `<section class="error-page"><h2>${esc(t("Unable to load this page"))}</h2><p>${esc(error.message)}</p>${button("Try again", "reload", "", "green")}${link("Home", "home", "white")}</section>`;
+    guide.update();
   }
 }

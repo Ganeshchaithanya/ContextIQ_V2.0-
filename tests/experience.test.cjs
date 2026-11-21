@@ -89,3 +89,10 @@ test('Tara impact panel can collapse and retains its state on a data refresh', (
   app.events.get('toggle')({target:{open:true,matches:() => true}});
   assert.match(app.run('aiImpact(data)'), /<details[^>]* open>/);
 });
+
+test('shared inline answer rendering escapes questions, answers and unsafe destinations', () => {
+  const app=setup();app.context.row={question:'<img src=x onerror=alert(1)>',answer:'<script>alert(1)</script>',destination:'javascript:alert(1)',sources:[],evidence:[]};
+  const html=app.run('messageHtml(row)');
+  assert.doesNotMatch(html,/<script>|<img|href="javascript:/);
+  assert.match(html,/&lt;script&gt;/);
+});
