@@ -87,7 +87,7 @@ test("seven steps navigate automatically, and finish restores normal page presen
   assert.equal(app.storage.get("contextiq.tara-tour.v2"), "seen");
 });
 
-test("Escape and Skip stop the current tour; a new visit offers the tour again", () => {
+test("Escape and Skip stop the current tour; returning users can replay it manually", () => {
   const app = setup();
   app.update();
   let prevented = false;
@@ -103,7 +103,7 @@ test("Escape and Skip stop the current tour; a new visit offers the tour again",
   assert.equal(app.query("#tour-spotlight").hidden, true);
   const returning = setup({"contextiq.tara-tour.v2": "seen"});
   returning.update();
-  assert(returning.query("#visual-guide").attributes.has("data-tour"));
+  assert(!returning.query("#visual-guide").attributes.has("data-tour"));
 });
 
 test("mobile panel stays inside the viewport and scroll updates follow the target", () => {
@@ -145,57 +145,54 @@ test("Tara remains available after the tour and on the anonymous payment entry s
 });
 
 
-test("each loaded step stays visible for three seconds and background updates do not reset its timer", () => {
-  const app = setup(); app.update();
-  app.tick(2999);
+test("tour steps advance only when the user selects Next", () => {
+  const app = setup(); app.update(); app.tick(60000); app.update();
   assert.equal(app.context.S.route.join("/"), "home");
-  app.update(); app.tick(1);
+  assert.equal(app.timers.size, 0);
+  app.click("tour-next");
   assert.equal(app.context.S.route.join("/"), "seller");
-  app.tick(3000);
-  assert.equal(app.context.S.route.join("/"), "seller/invoices");
 });
 
-test("minimizing preserves the same step, stops the timer and reopens the full guide", () => {
-  const app = setup(); app.update(); app.tick(3000);
+test("minimizing preserves the same step and reopens the full guide", () => {
+  const app = setup(); app.update(); app.click("tour-next");
   const panel = app.query("#visual-guide");
   app.click("minimize");
   assert.equal(panel.hidden, false);
   assert(panel.attributes.has("data-minimized"));
   assert.match(panel.innerHTML, /Open Tara visual guide/);
   assert.equal(app.query("#tour-spotlight").hidden, true);
-  app.tick(12000);
+  app.tick(60000);
   assert.equal(app.context.S.route.join("/"), "seller");
   app.click("open");
   assert.match(panel.innerHTML, /See who owes you/);
   assert.equal(app.query("#tour-spotlight").hidden, false);
-  app.tick(2999); assert.equal(app.context.S.route.join("/"), "seller");
-  app.tick(1); assert.equal(app.context.S.route.join("/"), "seller/invoices");
+  app.click("tour-next");
+  assert.equal(app.context.S.route.join("/"), "seller/invoices");
 });
 
-test("pause, hidden tabs and modal dialogs prevent automatic navigation", () => {
+test("background tabs and modal dialogs never advance the tour", () => {
   const app = setup(); app.update();
-  app.click("tour-auto"); app.tick(9000);
-  assert.equal(app.context.S.route[0], "home");
-  app.click("tour-auto");
   app.context.document.hidden = true; app.events.get("visibilitychange")(); app.tick(9000);
   assert.equal(app.context.S.route[0], "home");
   app.context.document.hidden = false; app.events.get("visibilitychange")();
   app.query("#dialog").open = true; app.update(); app.tick(9000);
   assert.equal(app.context.S.route[0], "home");
-  app.query("#dialog").open = false; app.update(); app.tick(3000);
-  assert.equal(app.context.S.route[0], "seller");
+  app.query("#dialog").open = false; app.update(); app.tick(9000);
+  assert.equal(app.context.S.route[0], "home");
 });
 
-test("a new login starts a fresh tour but ordinary Home visits do not restart it", () => {
+test("returning logins do not restart the tour; manual replay still works", () => {
   const app = setup(); app.update(); app.click("tour-skip"); app.update();
-  assert(!app.query("#visual-guide").attributes.has("data-tour"));
   app.context.S.csrf = "another-fictional-session";
   app.update();
+  assert(!app.query("#visual-guide").attributes.has("data-tour"));
+  vm.runInContext("guide.startTour()", app.context);
   assert(app.query("#visual-guide").attributes.has("data-tour"));
 });
 
-test("the automatic tour finishes at Home for recommendations and stops its timer", () => {
-  const app = setup(); app.update(); app.tick(21000);
+test("the manual tour finishes at Home for recommendations", () => {
+  const app = setup(); app.update();
+  for (let i = 0; i < 7; i++) app.click("tour-next");
   assert.equal(app.context.S.route.join("/"), "home");
   assert(!app.query("#visual-guide").attributes.has("data-tour"));
   assert.equal(app.timers.size, 0);
@@ -209,7 +206,7 @@ test("logging out clears private guidance and cancels the pending tour", () => {
   assert.equal(app.timers.size, 0);
   app.context.S.csrf = "new-login";
   app.update();
-  assert.match(app.query("#visual-guide").innerHTML, /Start with your money/);
+  assert(!app.query("#visual-guide").attributes.has("data-tour"));
 });
 
 test("Tara remains available when an invoice has no actionable payment", () => {

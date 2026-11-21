@@ -26,7 +26,7 @@ external service has been verified.
 | QR to app payment-code entry | PASS | Actual generated QR image decoded independently; HTTPS app link, escaped prefilled code, signature/version/expiry and cross-workspace denial. Client UPI QR also links to app entry. Physical phone camera testing remains unverified. |
 | Post-purchase support | PASS | Delivery, return/replacement windows, warranties, partial refunds and evidence briefcase. Seller actions are simulated. |
 | Tara answers and knowledge base | PASS | Recorded calculations, owned evidence, multilingual responses, reviewed source guides, model intent routing and safe fallback; external model tests use mocks. |
-| Tara visual guide and to-do list | PASS | Automatic seven-step tour on each login/visit, three seconds per step, pause/resume and skip/Escape; minimize to a persistent message bubble and reopen the same step; responsive spotlight, recommendation glow and anonymous code-entry cue. User pause/dismiss choices remain respected. |
+| Tara visual guide and to-do list | PASS | Automatic seven-step tour for first-time users only, manual Next/Back with no timer, replay and skip/Escape; minimize to a persistent message bubble and reopen the same step; responsive spotlight, recommendation glow and anonymous code-entry cue. User pause/dismiss choices remain respected. |
 | AI/privacy visibility | PASS | Collapsible impact panel retains its open/closed state when data refreshes.  Actual allocation/priorities/watch/run counts, routing provenance, heartbeat and question-text model opt-out. Opt-out persists when unrelated profile settings change. Generic predefined guide hints are separately disclosed. |
 
 ## Reliability and security checks

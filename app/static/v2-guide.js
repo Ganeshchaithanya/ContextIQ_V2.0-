@@ -19,31 +19,9 @@ const guide = (() => {
   let tourIndex = null;
   let spotlightStep = null;
   let spotlightFrame = null;
-  let tourSession = null;
+  let tourSeen = false;
+  try { tourSeen = localStorage.getItem(tourStorageKey) === "seen"; } catch { /* Use in-memory state. */ }
   let minimized = false;
-  let autoPaused = false;
-  let tourTimer = null;
-  let timerStep = null;
-  function stopTourTimer() {
-    if (tourTimer !== null) window.clearTimeout(tourTimer);
-    tourTimer = null;
-    timerStep = null;
-  }
-  function scheduleTour() {
-    if (!current?.tour || minimized || autoPaused || document.hidden || $("#dialog").open || !$(current.selector)) {
-      stopTourTimer();
-      return;
-    }
-    if (tourTimer !== null && timerStep === current.id) return;
-    stopTourTimer();
-    timerStep = current.id;
-    tourTimer = window.setTimeout(() => {
-      tourTimer = null;
-      if (current?.id !== timerStep || minimized || autoPaused || document.hidden || $("#dialog").open) return;
-      timerStep = null;
-      moveTour(1);
-    }, 3000);
-  }
   const tourSteps = [
     { route: "home", selector: ".balance-card", title: "Start with your money", body: "Available funds shows your recorded cash. Available to spend accounts for bills and planned savings. Your to-do list puts urgent work first." },
     { route: "seller", selector: ".seller-stats", title: "See who owes you", body: "Back office shows business cash, unpaid invoices and overdue clients. Open an invoice from this page to follow up." },
@@ -55,14 +33,12 @@ const guide = (() => {
   ];
 
   function rememberTour() {
-    tourSession = S.csrf;
+    tourSeen = true;
     try { localStorage.setItem(tourStorageKey, "seen"); } catch { /* Use session state. */ }
   }
 
   function startTour() {
-    stopTourTimer();
     minimized = false;
-    autoPaused = false;
     rememberTour();
     paused = false;
     try { localStorage.setItem(storageKey, "no"); } catch { /* Use session state. */ }
@@ -72,7 +48,6 @@ const guide = (() => {
   }
 
   function moveTour(change) {
-    stopTourTimer();
     const next = tourIndex + change;
     if (next >= tourSteps.length) {
       tourIndex = null;
@@ -462,18 +437,15 @@ const guide = (() => {
     panel.toggleAttribute("data-minimized", !open);
     if (!current?.tour || !open) hideSpotlight();
     if (panel.hidden) {
-      stopTourTimer();
       panel.textContent = "";
       return;
     }
     if (!open) {
-      stopTourTimer();
       panel.innerHTML = `<button type="button" class="guide-launch" data-guide="open" aria-label="Open Tara visual guide" aria-expanded="false" title="Open Tara"><svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8H5l-3 2v-10a9 9 0 0 1 18 0Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m12 6 1.2 3.3 3.3 1.2-3.3 1.2L12 15l-1.2-3.3L7.5 10.5l3.3-1.2Z" fill="currentColor"/></svg></button>`;
       return;
     }
     if (!target) {
       panel.innerHTML = `<button type="button" class="guide-launch" data-guide="minimize" aria-label="Minimize Tara">✦ Tara</button>`;
-      stopTourTimer();
       return;
     }
 
@@ -484,7 +456,7 @@ const guide = (() => {
     if (current.tour) {
       panel.setAttribute("data-tour", "");
       highlighted.classList.add("guide-tour-target");
-      panel.querySelector(".guide-controls").innerHTML = `<div class="guide-tour-status"><span>Step ${tourIndex + 1} of ${tourSteps.length} · 3 seconds each</span><button type="button" class="guide-pause" data-guide="show">Show me</button></div><div class="guide-tour-buttons"><button type="button" class="guide-pause" data-guide="tour-auto">${autoPaused ? "Resume" : "Pause"}</button><button type="button" class="btn white small" data-guide="tour-back" ${tourIndex === 0 ? "disabled" : ""}>Back</button><button type="button" class="btn green small" data-guide="tour-next">${tourIndex === tourSteps.length - 1 ? "Finish tour" : "Next"}</button><button type="button" class="guide-pause" data-guide="tour-skip">Skip tour</button></div>`;
+      panel.querySelector(".guide-controls").innerHTML = `<div class="guide-tour-status"><span>Step ${tourIndex + 1} of ${tourSteps.length}</span><button type="button" class="guide-pause" data-guide="show">Show me</button></div><div class="guide-tour-buttons"><button type="button" class="btn white small" data-guide="tour-back" ${tourIndex === 0 ? "disabled" : ""}>Back</button><button type="button" class="btn green small" data-guide="tour-next">${tourIndex === tourSteps.length - 1 ? "Finish tour" : "Next"}</button><button type="button" class="guide-pause" data-guide="tour-skip">Skip tour</button></div>`;
       if (spotlightStep !== current.id) {
         spotlightStep = current.id;
         target.scrollIntoView({block: "start", behavior: "instant"});
@@ -492,7 +464,6 @@ const guide = (() => {
       }
       positionSpotlight();
     }
-    scheduleTour();
   }
 
   async function updateNextTip() {
@@ -519,11 +490,10 @@ const guide = (() => {
   }
 
   function update() {
-    if (S.csrf && tourSession !== S.csrf && S.profile.onboarded && S.route[0] === "home") {
+    if (!tourSeen && !paused && S.csrf && S.profile.onboarded && S.route[0] === "home") {
       rememberTour();
       paused = false;
       minimized = false;
-      autoPaused = false;
       tourIndex = 0;
     }
     const step = tourIndex === null ? null : tourSteps[tourIndex];
@@ -534,14 +504,13 @@ const guide = (() => {
       draw();
       return;
     }
-    if (step) { tourIndex = null; stopTourTimer(); }
+    if (step) tourIndex = null;
     current = pageCue();
     draw();
     void updateNextTip();
   }
 
   function clear() {
-    stopTourTimer();
     removeHighlight();
     hideSpotlight();
     if (!S.csrf || !S.profile.onboarded) {
@@ -558,21 +527,14 @@ const guide = (() => {
     if (!command || !current) return;
     if (command === "minimize" || command === "dismiss") {
       minimized = true;
-      stopTourTimer();
       draw();
       $('[data-guide="open"]', $("#visual-guide"))?.focus();
-      return;
-    }
-    if (command === "tour-auto") {
-      autoPaused = !autoPaused;
-      draw();
       return;
     }
     if (current.tour) {
       if (command === "tour-next") return moveTour(1);
       if (command === "tour-back") return moveTour(-1);
       if (["tour-skip", "pause"].includes(command)) {
-        stopTourTimer();
         tourIndex = null;
         rememberTour();
         return update();
@@ -619,8 +581,7 @@ const guide = (() => {
 
   $("#dialog").addEventListener("close", update);
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) stopTourTimer();
-    else draw();
+    if (!document.hidden) draw();
   });
   window.setInterval(async () => {
     await refreshHomeFocus();
@@ -660,7 +621,6 @@ const guide = (() => {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && tourIndex !== null && !$("#dialog").open) {
       event.preventDefault();
-      stopTourTimer();
       tourIndex = null;
       rememberTour();
       update();
