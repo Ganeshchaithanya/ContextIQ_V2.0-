@@ -54,21 +54,38 @@ def fail(code, message):
     raise HTTPException(code, message)
 
 
-def db_dep(request: Request):
-    with SessionLocal() as db:
+async def db_dep(request: Request):
+    # Queue writes before checkout: waiting requests must not occupy every DB
+    # connection (or every worker thread) while the active payment commits.
+    import asyncio
+    import anyio
+    from contextlib import AsyncExitStack
+    from starlette.concurrency import run_in_threadpool
+    async with AsyncExitStack() as stack:
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            loop = asyncio.get_running_loop()
+            gate = getattr(loop, "_contextiq_mutation_gate", None)
+            if gate is None:
+                gate = asyncio.Lock()
+                loop._contextiq_mutation_gate = gate
+            await stack.enter_async_context(gate)
+        db = SessionLocal()
         try:
             if (db.bind.dialect.name == "postgresql" and request.method not in ("GET", "HEAD", "OPTIONS")
                     and getattr(request.state, "session_hash", None)):
                 from sqlalchemy import text
                 subject = getattr(request.state, "session_hash", "anonymous")
                 lock_id = int.from_bytes(hashlib.sha256(subject.encode()).digest()[:8], "big", signed=True)
-                db.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": lock_id})
+                await run_in_threadpool(db.execute, text("SELECT pg_advisory_xact_lock(:id)"), {"id": lock_id})
             yield db
-            db.commit()
-        except Exception:
-            db.rollback()
+            await run_in_threadpool(db.commit)
+        except BaseException:
+            with anyio.CancelScope(shield=True):
+                await run_in_threadpool(db.rollback)
             raise
-
+        finally:
+            with anyio.CancelScope(shield=True):
+                await run_in_threadpool(db.close)
 
 def session(request: Request, db=Depends(db_dep)):
     record = db.get(DemoSession, getattr(request.state, "session_hash", ""))
@@ -82,6 +99,28 @@ def same_origin(request):
     if settings.hosted_demo:
         return not origin or origin in (settings.public_base_url.rstrip("/"), settings.app_url)
     return not origin or origin == str(request.base_url).rstrip("/")
+
+
+def validate_session_access(request):
+    token = request.cookies.get("ciq_session", "")
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    with SessionLocal() as db:
+        current = db.get(DemoSession, token_hash)
+        if not current or aware(current.expires_at) <= now():
+            return JSONResponse({"detail": "Start your private demo first"}, status_code=401)
+        if settings.auth_mode == "oidc":
+            from .models import VerifiedIdentity
+            if not db.scalar(select(VerifiedIdentity.id).where(VerifiedIdentity.buyer_id == current.buyer_id)):
+                return JSONResponse({"detail": "Verified sign-in required"}, status_code=401)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and not secrets.compare_digest(request.headers.get("x-csrf-token", ""), current.csrf):
+            return JSONResponse({"detail": "Refresh the page before trying again"}, status_code=403)
+        from .security.identity import rate_allowed
+        allowed = rate_allowed(db, token_hash)
+        db.commit()
+        if not allowed:
+            return JSONResponse({"detail": "Please wait a moment before trying again"}, status_code=429)
+        request.state.session_hash = token_hash
+        request.scope["headers"] = [(k, v) for k, v in request.scope["headers"] if k.lower() != b"x-user-id"] + [(b"x-user-id", current.buyer_id.encode())]
 
 
 async def access_control(request, call_next):
@@ -105,25 +144,10 @@ async def access_control(request, call_next):
         return await call_next(request)
     if path in ("/api/config", "/api/v2/auth/exchange") or (path == "/api/v2/session" and request.method in ("GET", "POST")):
         return await call_next(request)
-    token = request.cookies.get("ciq_session", "")
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    with SessionLocal() as db:
-        current = db.get(DemoSession, token_hash)
-        if not current or aware(current.expires_at) <= now():
-            return JSONResponse({"detail": "Start your private demo first"}, status_code=401)
-        if settings.auth_mode == "oidc":
-            from .models import VerifiedIdentity
-            if not db.scalar(select(VerifiedIdentity.id).where(VerifiedIdentity.buyer_id == current.buyer_id)):
-                return JSONResponse({"detail": "Verified sign-in required"}, status_code=401)
-        if request.method not in ("GET", "HEAD", "OPTIONS") and not secrets.compare_digest(request.headers.get("x-csrf-token", ""), current.csrf):
-            return JSONResponse({"detail": "Refresh the page before trying again"}, status_code=403)
-        from .security.identity import rate_allowed
-        allowed = rate_allowed(db, token_hash)
-        db.commit()
-        if not allowed:
-            return JSONResponse({"detail": "Please wait a moment before trying again"}, status_code=429)
-        request.state.session_hash = token_hash
-        request.scope["headers"] = [(k, v) for k, v in request.scope["headers"] if k.lower() != b"x-user-id"] + [(b"x-user-id", current.buyer_id.encode())]
+    from starlette.concurrency import run_in_threadpool
+    rejection = await run_in_threadpool(validate_session_access, request)
+    if rejection is not None:
+        return rejection
     if not path.startswith("/api/v2/"):
         safe = path.startswith("/api/cases") or path in ("/api/profile", "/api/budget", "/api/whatif", "/api/obligations", "/api/home", "/api/cart/watch", "/api/insights", "/api/recommendations", "/api/features")
         if request.method != "GET" or not safe:
@@ -1469,6 +1493,8 @@ def transparency(current=Depends(session), db=Depends(db_dep)):
     heartbeat = db.get(WorkerHeartbeat, "scheduler")
     result = latest.state.get("result", {}) if latest else {}
     return {"as_of": now().isoformat(), "workspace": data["workspace"],
+            "storage": {"engine": db.bind.dialect.name,
+                        "ephemeral": settings.hosted_demo and db.bind.dialect.name == "sqlite"},
             "model_questions_enabled": prefs.get("allow_model_questions", True),
             "model_available": llm.available(), "provider": llm.PROVIDER if llm.available() else None,
             "impact": {"committed_minor": allocation["committed_minor"], "reserved_minor": allocation["reserved_minor"],

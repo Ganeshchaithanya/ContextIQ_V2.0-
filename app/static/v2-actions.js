@@ -629,6 +629,7 @@ async function submit(form) {
   }
   if (form.id === "scan-form") {
     if (!S.csrf) {
+      history.replaceState(null, "", `#/scan?code=${encodeURIComponent(data.token.trim())}`);
       const session = await api("/session", {persona: "freelancer"});
       S.csrf = session.csrf;
       S.profile = await api("/profile");

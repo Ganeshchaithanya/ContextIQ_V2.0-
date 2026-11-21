@@ -57,7 +57,14 @@ Python files run in separate processes because each owns its test database setti
   production integrations. Do not describe them as passed live features.
 - Cloud model availability can change; deterministic financial calculations and
   record-backed assistance remain available without model classification.
-- The existing free Render database expires on 21 December 2026. No database migration
-  or paid service was provisioned by this change.
+- At the owner's request, the application uses local SQLite on the free Render web
+  service. Its data and checkpoints can reset on a restart or redeploy; start a fresh
+  demo session afterward. The previous PostgreSQL database is left untouched and is
+  not used by the application. No paid disk or new database was provisioned.
 - This run is not a load-capacity benchmark or penetration test. High-concurrency
   payment assertions cover correctness in the tested environment, not unlimited scale.
+
+The expanded Linux CI stress check initially exposed pool starvation at 20 concurrent
+submissions. The fix queues mutations asynchronously before connection checkout and
+performs session validation outside the request event loop; the regression retains
+all 20 submissions rather than reducing the test load.

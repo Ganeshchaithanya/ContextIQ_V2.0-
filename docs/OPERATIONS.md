@@ -1,8 +1,19 @@
+# Current demo storage — 22 November 2026
+
+The owner selected normal SQLite instead of an external database. The Render
+Blueprint sets `DATABASE_URL=sqlite:///data/contextiq.db`. On the existing free
+web service this file, agent checkpoints and demo sessions can reset on a restart
+or redeploy. Start a fresh demo session afterward. The previous PostgreSQL resource
+is untouched and no longer connected. PostgreSQL instructions below are optional
+deployment guidance, not the current demo configuration. Do not add a separate
+worker against another SQLite file: the embedded worker shares the web process's
+local database. No paid storage was provisioned.
+
 # ContextIQ operational reliability
 
 This release preserves the V2 pages, Tara tour, business accounts, budgets, store handoff and human payment approvals. It hardens the execution backbone. It does not turn the fictional-data demonstration into a regulated payment service or claim a penetration-test certification.
 
-## Active demo architecture
+## Optional PostgreSQL architecture and migration guidance
 
 Vercel serves ContextIQ and BrightMart separately. The existing Render API uses its configured database as the authority for money, permissions, inbox events, queued work and agent runs. `CONTEXTIQ_WORKER_MODE=embedded` runs a leased database-queue consumer inside that service. No additional paid resource is created by the default Blueprint.
 

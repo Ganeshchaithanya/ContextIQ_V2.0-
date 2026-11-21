@@ -53,6 +53,7 @@ def test_privacy_optout_and_transparency_track_real_runs(client, monkeypatch):
     before = client.get("/api/v2/transparency")
     assert before.status_code == 200, before.text
     before = before.json()
+    assert before["storage"]["engine"] == "sqlite"
     assert before["model_questions_enabled"] is False
     answer = client.post("/api/v2/ask", json={"message": "xyzzy unfamiliar question"})
     assert answer.status_code == 200, answer.text

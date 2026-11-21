@@ -21,9 +21,7 @@ services:
       - key: CONTEXTIQ_AUTH_MODE
         value: demo
       - key: DATABASE_URL
-        fromDatabase:
-          name: contextiq-v2-data
-          property: connectionString
+        value: sqlite:///data/contextiq.db
       - key: LLM_PROVIDER
         value: groq
       - key: GROQ_MODEL_SMALL
