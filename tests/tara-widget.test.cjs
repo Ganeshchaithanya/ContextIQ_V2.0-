@@ -5,21 +5,24 @@ const vm = require('node:vm');
 
 function setup() {
   const events = new Map(), storage = new Map(), attrs = new Set(['data-open']);
-  const thread = {innerHTML:''}, field = {value:''}, send = {}, heading = {classList:{add(){}}};
+  const thread = {innerHTML:'',scrollTop:0}, field = {value:'',selectionStart:0,selectionEnd:0,setSelectionRange(start,end){this.selectionStart=start;this.selectionEnd=end;}}, send = {}, heading = {classList:{add(){}}};
+  const notice={innerHTML:'',dataset:{},querySelector(){return null;}}, badge={hidden:true,setAttribute(){}};
+  const body={querySelector:selector=>selector==='.tara-notification'?notice:null};
   let mounted = false;
   const panel = {
-    hidden:false, style:{removeProperty(name){delete this[name];}}, html:'',
+    hidden:false, style:{removeProperty(name){delete this[name];}}, html:'',scrollTop:0,
     hasAttribute:name=>attrs.has(name),
     removeAttribute:name=>attrs.delete(name),
     toggleAttribute(name,on){if(on)attrs.add(name);else attrs.delete(name);},
     getBoundingClientRect(){return {left:parseFloat(this.style.left)||10,top:parseFloat(this.style.top)||10,width:parseFloat(this.style.width)||380,height:parseFloat(this.style.height)||420};},
     insertAdjacentHTML(_, html){this.html += html; mounted = true;},
-    querySelector(selector){return ({'.tara-inline-thread':thread,'[data-tara-message]':field,'[data-tara-send]':send,'.guide-top > span':heading,'.tara-widget-chat':mounted ? {} : null})[selector]||null;},
+    append(node){assert.equal(node,body);mounted=true;this.restoredBody=node;},
+    querySelector(selector){return ({'.tara-inline-thread':thread,'[data-tara-message]':field,'[data-tara-send]':send,'.guide-top > span':heading,'.tara-widget-chat':mounted ? {} : null,'.tara-widget-body':mounted?body:null,'.tara-notification':notice,'.tara-priority-count':badge})[selector]||null;},
     addEventListener(name, fn, capture){events.set(name+!!capture,fn);}, setPointerCapture(){},
   };
-  const context = {S:{csrf:'fictional',route:['budget']}, document:{querySelector:()=>panel},
+  const context = {S:{csrf:'fictional',route:['budget']}, document:{hidden:true,querySelector:()=>panel},
     guide:{minimize(){attrs.delete('data-open');context.window.ContextIQTaraWidget.mount(panel,{open:false});}},
-    window:{innerWidth:1000,innerHeight:800,addEventListener(){},setTimeout(){}},
+    window:{innerWidth:1000,innerHeight:800,addEventListener(){},setTimeout(){},setInterval(){}},
     localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},
     messageHtml:row=>JSON.stringify(row), api:async()=>({answer:'Recorded answer',analysis:{records:['owned record']},destination:'#/budget'}),
   };
@@ -27,7 +30,7 @@ function setup() {
   vm.runInContext(fs.readFileSync('app/static/v2-tara-widget.js','utf8'),context);
   const widget = context.window.ContextIQTaraWidget;
   widget.mount(panel,{open:true});
-  return {context,widget,panel,thread,field,send,events,storage,attrs};
+  return {context,widget,panel,thread,field,send,events,storage,attrs,notice,badge,body,hideDom(){mounted=false;}};
 }
 
 function dragTo(app, x, y) {
@@ -70,7 +73,7 @@ test('the minimized bubble can be dragged and stays on screen', () => {
 
 test('inline questions reuse owned Ask Tara with evidence and never change the page', async () => {
   const app = setup(); let body;
-  assert.match(app.panel.html,/class="tara-open-ask" href="#\/ask">Open Ask Tara/);
+  assert.match(app.panel.html,/class="tara-open-ask" href="#\/ask">Open Ask/);
   app.context.api=async(path,data)=>{assert.equal(path,'/ask');body=data;return {answer:'Owned cash',analysis:{records:['owned evidence']}};};
   await app.widget.ask('How is my financial condition?');
   assert.equal(body.message,'How is my financial condition?');
@@ -169,4 +172,51 @@ test('shrinking below readable size becomes an icon and restores the last rectan
 test('canceling a compact resize does not minimize the widget', () => {
   const app=setup();resizeFrom(app,'se',-150,0,'pointercancelfalse');
   assert.equal(app.attrs.has('data-open'),true);
+});
+
+test('minimize and reopen reuse the exact composer view, draft, scroll and rectangle', async () => {
+  const app=setup();await app.widget.ask('My records');
+  app.widget.setSize(410,280);
+  app.field.value='A question in progress';app.field.selectionStart=2;app.field.selectionEnd=8;
+  app.panel.scrollTop=34;app.thread.scrollTop=51;
+  let html=app.thread.innerHTML,writes=0;
+  Object.defineProperty(app.thread,'innerHTML',{get:()=>html,set:value=>{html=value;writes++;}});
+  app.widget.captureView();app.hideDom();app.attrs.delete('data-open');app.widget.mount(app.panel,{open:false});
+  app.attrs.add('data-open');app.widget.mount(app.panel,{open:true});
+  assert.equal(app.panel.restoredBody,app.body);
+  assert.equal(writes,0,'Existing evidence DOM must not be rebuilt');
+  assert.equal(app.field.value,'A question in progress');
+  assert.equal(app.field.selectionStart,2);assert.equal(app.field.selectionEnd,8);
+  assert.equal(app.panel.scrollTop,34);assert.equal(app.thread.scrollTop,51);
+  assert.equal(parseFloat(app.panel.style.width),410);assert.equal(parseFloat(app.panel.style.height),280);
+});
+
+test('priority notification uses the first incomplete ranked task and advances after completion', async () => {
+  const app=setup();app.context.document.hidden=false;
+  let suggestions=[{id:'done',completed:true,title:'Already handled'},{id:'overdue',title:'Overdue invoice',tone:'urgent',destination:'#/seller/invoices/one'},{id:'later',title:'Plan purchase',tone:'normal'}];
+  app.context.api=async()=>({suggestions});
+  await app.widget.refreshPriority(true);
+  assert.match(app.notice.innerHTML,/Urgent|Overdue invoice/);assert.doesNotMatch(app.notice.innerHTML,/Already handled|Plan purchase/);
+  assert.equal(app.badge.hidden,false);
+  suggestions=suggestions.map(row=>({...row,completed:row.id!=='later'}));
+  await app.widget.refreshPriority(true);
+  assert.match(app.notice.innerHTML,/Plan purchase/);assert.doesNotMatch(app.notice.innerHTML,/Overdue invoice/);
+});
+
+test('priority labels and links are safe and an unavailable refresh is disclosed', async () => {
+  const app=setup();app.context.document.hidden=false;
+  app.context.api=async()=>({suggestions:[{id:'one',title:'<img src=x>',destination:'javascript:alert(1)'}]});
+  await app.widget.refreshPriority(true);
+  assert.doesNotMatch(app.notice.innerHTML,/<img|href="javascript:/);
+  assert.match(app.notice.innerHTML,/href="#\/home"/);
+  app.context.api=async()=>{throw new Error('Offline');};
+  await app.widget.refreshPriority(true);
+  assert.match(app.notice.innerHTML,/Refresh unavailable/);
+});
+
+test('an empty recorded priority list clears the minimized notification badge', async () => {
+  const app=setup();app.context.document.hidden=false;
+  app.context.api=async()=>({suggestions:[{id:'one',title:'First action'}]});await app.widget.refreshPriority(true);
+  app.context.api=async()=>({suggestions:[],focus:null});await app.widget.refreshPriority(true);
+  assert.equal(app.badge.hidden,true);assert.match(app.notice.innerHTML,/No pending priorities/);
 });

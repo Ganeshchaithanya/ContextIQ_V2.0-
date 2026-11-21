@@ -6,6 +6,9 @@ window.ContextIQTaraWidget = (() => {
   const key = "contextiq.tara-position.v2";
   let geometry = null, panel = null, owner = null, rows = [], draft = "", pending = false;
   let requestNumber = 0, drag = null, suppressClick = false;
+  let savedBody = null, savedScroll = 0, savedSelection = null, priority = null, priorityStatus = "loading", priorityAt = 0, priorityLoading = false, priorityQueued = false;
+  const rendered = new WeakMap();
+  const escape = value => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   try {
     const current = localStorage.getItem(key);
     const saved = JSON.parse(current || localStorage.getItem("contextiq.tara-position.v1") || "null");
@@ -30,6 +33,7 @@ window.ContextIQTaraWidget = (() => {
   function resetSession() {
     if (owner === S.csrf) return;
     owner = S.csrf; rows = []; draft = ""; pending = false; requestNumber++;
+    savedBody = null; savedScroll = 0; savedSelection = null; priority = null; priorityStatus = "loading"; priorityAt = 0; priorityLoading = false; priorityQueued = false;
     renderChat();
   }
   function place(target = panel, tour = false) {
@@ -45,7 +49,7 @@ window.ContextIQTaraWidget = (() => {
     const width = small ? 56 : clamp(geometry?.width || 320, Math.min(240, view.width - 24), view.width - 24);
     target.style.width = `${width}px`;
     if (!small && Number.isFinite(geometry?.height))
-      target.style.height = `${clamp(geometry.height, Math.min(240, view.height - view.bottom - 12), view.height - view.bottom - 12)}px`;
+      target.style.height = `${clamp(geometry.height, Math.min(150, view.height - view.bottom - 12), view.height - view.bottom - 12)}px`;
     else target.style.removeProperty("height");
     const height = small ? 56 : target.getBoundingClientRect().height;
     const x = 12 + (geometry?.x ?? 1) * Math.max(0, view.width - width - 24);
@@ -57,7 +61,7 @@ window.ContextIQTaraWidget = (() => {
     geometry = {...geometry, x: geometry?.x ?? 1, y: geometry?.y ?? 1, width, height};
     save(); place();
   }
-  function compactSize(width, height) { return width < 230 || height < 200; }
+  function compactSize(width, height) { return width < 230 || height < 125; }
   function collapseToBubble() {
     if (typeof guide !== "undefined") guide.minimize();
   }
@@ -65,8 +69,21 @@ window.ContextIQTaraWidget = (() => {
     if (!panel) return;
     const thread = panel.querySelector(".tara-inline-thread");
     if (!thread) return;
-    thread.innerHTML = rows.map(row => messageHtml(row)).join("")
+    const html = rows.map((row, i) => `<div data-tara-turn="${escape(row.run_id || row.local_id || i)}">${messageHtml(row)}</div>`).join("")
       + (pending ? '<p class="tara-wait" role="status">Checking your records…</p>' : "");
+    if (rendered.get(thread) !== html) {
+      const states = new Map();
+      for (const turn of thread.querySelectorAll?.("[data-tara-turn]") || []) {
+        states.set(turn.dataset.taraTurn, [...turn.querySelectorAll("details")].map(detail => detail.open));
+      }
+      const scroll = thread.scrollTop;
+      thread.innerHTML = html; rendered.set(thread, html);
+      for (const turn of thread.querySelectorAll?.("[data-tara-turn]") || []) {
+        const open = states.get(turn.dataset.taraTurn);
+        if (open) [...turn.querySelectorAll("details")].forEach((detail, i) => { detail.open = Boolean(open[i]); });
+      }
+      thread.scrollTop = scroll;
+    }
     const field = panel.querySelector("[data-tara-message]");
     if (field) field.value = draft;
     const send = panel.querySelector("[data-tara-send]");
@@ -94,24 +111,78 @@ window.ContextIQTaraWidget = (() => {
         destination: "#/home", topic: "getting_started", evidence: [],
       };
       if (session !== S.csrf || request !== requestNumber) return;
-      rows.push({question: message, ...answer});
+      rows.push({question: message, local_id: request, ...answer});
       rows = rows.slice(-12);
     } catch (error) {
       if (session !== S.csrf || request !== requestNumber) return;
-      rows.push({question: message, answer: `Unable to load an answer: ${error.message}. Please try again.`, destination: "#/transparency", evidence: []});
+      rows.push({question: message, local_id: request, answer: `Unable to load an answer: ${error.message}. Please try again.`, destination: "#/transparency", evidence: []});
     } finally {
       if (session === S.csrf && request === requestNumber) { pending = false; renderChat(); place(panel, panel?.hasAttribute("data-tour")); }
     }
   }
+  function captureView() {
+    const body = panel?.querySelector(".tara-widget-body");
+    if (!body) return;
+    savedBody = body;
+    savedScroll = panel.scrollTop;
+    const field = panel.querySelector("[data-tara-message]");
+    if (field) { draft = field.value; savedSelection = {start: field.selectionStart, end: field.selectionEnd}; }
+  }
+  function paintPriority() {
+    if (!panel) return;
+    const notice = panel.querySelector(".tara-notification") || savedBody?.querySelector(".tara-notification");
+    if (notice) {
+      const signature = JSON.stringify([priority, priorityStatus]);
+      if (notice.dataset.prioritySignature !== signature) {
+        const previous = notice.querySelector("details"), wasOpen = previous?.open;
+        const same = notice.dataset.priorityId === priority?.id;
+        notice.innerHTML = priority ? `<details ${same && wasOpen ? "open" : ""}><summary><span class="tara-priority-tone" data-tone="${escape(priority.tone)}">${escape(priority.label)}</span><span class="tara-priority-title">${escape(priority.title)}</span></summary><p>${escape(priority.body)}</p>${priorityStatus === "error" ? "<p>Refresh unavailable · showing the previous priority.</p>" : ""}<a href="${escape(priority.destination)}">Review priority ↗</a></details>`
+          : `<p>${!S.csrf ? "Your guide, on every page" : priorityStatus === "ready" ? "No pending priorities in your recorded list" : priorityStatus === "error" ? "Priorities temporarily unavailable" : "Checking priorities…"}</p>`;
+        notice.dataset.prioritySignature = signature; notice.dataset.priorityId = priority?.id || "";
+      }
+    }
+    const badge = panel.querySelector(".tara-priority-count");
+    if (badge) {
+      badge.hidden = !priority;
+      badge.textContent = priority?.tone === "urgent" ? "!" : "1";
+      badge.setAttribute("aria-label", priority ? `${priority.label}: ${priority.title}` : "No pending priority");
+    }
+  }
+  async function refreshPriority(force = false) {
+    resetSession();
+    if (!S.csrf || document.hidden) return;
+    if (priorityLoading) { if (force) priorityQueued = true; return; }
+    if (!force && Date.now() - priorityAt < 30000) return;
+    const session = S.csrf; priorityLoading = true; priorityAt = Date.now();
+    try {
+      const data = await api(typeof dashboardEndpoint === "function" ? dashboardEndpoint() : "/dashboard");
+      if (session !== S.csrf) return;
+      const focus = data.suggestions?.find(row => !row.completed) || (data.focus?.completed ? null : data.focus);
+      if (focus) {
+        const text = typeof observationText === "function" ? observationText(focus) : {title:focus.title || "Next priority",description:focus.description || "Review your recorded task."};
+        const timing = typeof reminderTiming === "function" ? reminderTiming(focus, data.task_date) : {tone:focus.tone || "normal"};
+        const tone = ["urgent", "soon"].includes(timing?.tone) ? timing.tone : "normal";
+        priority = {id:focus.id, title:text.title, body:text.description, tone,
+          label: tone === "urgent" ? "Urgent" : tone === "soon" ? "Due soon" : "Next up",
+          destination: /^#\//.test(focus.destination || "") ? focus.destination : "#/home"};
+      } else priority = null;
+      priorityStatus = "ready";
+    } catch { if (session === S.csrf) priorityStatus = "error"; }
+    finally { if (session === S.csrf) { priorityLoading = false; paintPriority(); if (priorityQueued) { priorityQueued = false; void refreshPriority(true); } } }
+  }
   function mount(target, {open = false, tour = false} = {}) {
     panel = target; resetSession();
-    if (open && !panel.querySelector(".tara-widget-chat")) {
-      panel.insertAdjacentHTML("beforeend", `<section class="tara-widget-chat" aria-label="Ask Tara here">${S.csrf ? '<a class="tara-open-ask" href="#/ask">Open Ask Tara ↗</a>' : ""}<div class="tara-inline-thread" role="log" aria-label="Conversation with Tara" aria-live="polite"></div><form data-tara-chat><label for="tara-inline-question">Ask Tara without leaving this page</label><div class="tara-composer"><input id="tara-inline-question" data-tara-message name="message" maxlength="2000" required placeholder="Ask about your records…" autocomplete="off"><button type="submit" data-tara-send>Send ↗</button></div><p>${S.csrf ? 'Uses your AI privacy choice. <a href="#/transparency">AI &amp; Privacy</a>' : "Start a private demo for answers from your records."}</p></form></section><button class="tara-resize" type="button" data-tara-resize data-tara-corner="se" aria-label="Resize Tara: drag or use arrow keys" title="Drag to resize; shrink to minimize">↘</button>${["nw", "ne", "sw"].map(corner => `<button class="tara-resize tara-resize-${corner}" type="button" data-tara-resize data-tara-corner="${corner}" aria-label="Resize Tara from ${corner}" title="Drag to resize; shrink to minimize">⋱</button>`).join("")}`);
-      const heading = panel.querySelector(".guide-top > span");
-      if (heading) { heading.classList.add("tara-drag-handle"); heading.title = "Drag Tara to move it"; }
+    if (open && !panel.querySelector(".tara-widget-body")) {
+      if (savedBody) panel.append(savedBody);
+      else panel.insertAdjacentHTML("beforeend", `<div class="tara-widget-body"><section class="tara-widget-chat" aria-label="Ask Tara here"><div class="tara-notification" aria-live="polite"></div><div class="tara-inline-thread" role="log" aria-label="Conversation with Tara" aria-live="polite"></div><form data-tara-chat><label class="sr-only" for="tara-inline-question">Ask Tara</label><textarea id="tara-inline-question" data-tara-message name="message" maxlength="2000" rows="2" required placeholder="Ask Tara…" autocomplete="off"></textarea><div class="tara-composer-footer"><span>✦ Your records</span><div>${S.csrf ? '<a class="tara-open-ask" href="#/ask">Open Ask ↗</a>' : ""}<button type="submit" data-tara-send aria-label="Send question">↑</button></div></div><p class="tara-ai-choice">${S.csrf ? '<a href="#/transparency">AI &amp; Privacy</a> · Your approval before any payment' : "Start a private demo for answers from your records."}</p></form></section><button class="tara-resize" type="button" data-tara-resize data-tara-corner="se" aria-label="Resize Tara: drag or use arrow keys" title="Drag to resize; shrink to minimize">↘</button>${["nw", "ne", "sw"].map(corner => `<button class="tara-resize tara-resize-${corner}" type="button" data-tara-resize data-tara-corner="${corner}" aria-label="Resize Tara from ${corner}" title="Drag to resize; shrink to minimize">⋱</button>`).join("")}</div>`);
       renderChat();
+      if (savedSelection) panel.querySelector("[data-tara-message]")?.setSelectionRange(savedSelection.start, savedSelection.end);
     }
+    const heading = panel.querySelector(".guide-top > span");
+    if (heading) { heading.classList.add("tara-drag-handle"); heading.title = "Drag Tara to move it"; }
+    paintPriority(); void refreshPriority();
     place(panel, tour);
+    if (open) panel.scrollTop = savedScroll;
   }
 
   const widget = document.querySelector("#visual-guide");
@@ -147,7 +218,7 @@ window.ContextIQTaraWidget = (() => {
       widget.toggleAttribute("data-shrink-to-icon", drag.collapse);
       if (!drag.collapse) {
         const boundedWidth = clamp(width, Math.min(240, view.width - 24), view.width - 24);
-        const boundedHeight = clamp(height, Math.min(240, view.height - view.bottom - 12), view.height - view.bottom - 12);
+        const boundedHeight = clamp(height, Math.min(150, view.height - view.bottom - 12), view.height - view.bottom - 12);
         const left = drag.rect.left + (fromLeft ? drag.rect.width - boundedWidth : 0);
         const top = drag.rect.top + (fromTop ? drag.rect.height - boundedHeight : 0);
         geometry = {width: boundedWidth, height: boundedHeight,
@@ -182,7 +253,10 @@ window.ContextIQTaraWidget = (() => {
     if (compactSize(width, height)) collapseToBubble();
     else setSize(width, height);
   });
+  window.setInterval(() => { void refreshPriority(); }, 60000);
+  window.addEventListener("contextiq:records-changed", () => { void refreshPriority(true); });
+  if (typeof workspaceUpdates !== "undefined") workspaceUpdates?.addEventListener("message", () => { void refreshPriority(true); });
   window.addEventListener("resize", () => place(panel, panel?.hasAttribute("data-tour")));
   window.visualViewport?.addEventListener("resize", () => place(panel, panel?.hasAttribute("data-tour")));
-  return {mount, place, resetSession, setSize, ask, captureFocus, restoreFocus};
+  return {mount, place, resetSession, setSize, ask, captureFocus, restoreFocus, captureView, refreshPriority};
 })();

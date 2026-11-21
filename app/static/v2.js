@@ -76,6 +76,7 @@ let refreshingWorkspace = false;
 
 function publishWorkspaceUpdate() {
   workspaceUpdates?.postMessage("records-changed");
+  window.dispatchEvent(new Event("contextiq:records-changed"));
 }
 
 function consumesWorkspaceRecords(route) {
@@ -150,7 +151,7 @@ async function api(path, body, method) {
     error.status = response.status;
     throw error;
   }
-  const changedRecords = /^\/(?:profile|history|bills|business|plans|watch|purchases|seller)(?:\/|$)|^\/store-cart\//.test(path);
+  const changedRecords = /^\/(?:profile|history|bills|business|plans|watch|purchases|seller|daily-tasks|invoices)(?:\/|$)|^\/store-cart\//.test(path);
   if (verb !== "GET" && (changedRecords || data?.status === "paid")) publishWorkspaceUpdate();
   return data;
 }

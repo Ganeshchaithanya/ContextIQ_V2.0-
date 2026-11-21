@@ -422,6 +422,7 @@ const guide = (() => {
     const host = $("#dialog").open ? $("#dialog") : document.body;
     if (host?.append && panel.parentElement !== host) host.append(panel);
     const writing = window.ContextIQTaraWidget?.captureFocus();
+    window.ContextIQTaraWidget?.captureView();
     removeHighlight();
     const target = current && $(current.selector);
     if (
@@ -440,6 +441,7 @@ const guide = (() => {
       && (current.tour || (current.alert && openAlert === current.id) || openTip === current.id)));
     panel.toggleAttribute("data-urgent-alert", Boolean(current?.alert && open));
     panel.toggleAttribute("data-open", open);
+    panel.toggleAttribute("data-composer", !current?.tour);
     panel.toggleAttribute("data-minimized", !open);
     if (!current?.tour || !open) hideSpotlight();
     if (panel.hidden) {
@@ -447,15 +449,17 @@ const guide = (() => {
       return;
     }
     if (!open) {
-      panel.innerHTML = `<button type="button" class="guide-launch" data-guide="open" aria-label="Open Tara visual guide" aria-expanded="false" title="Open Tara"><svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8H5l-3 2v-10a9 9 0 0 1 18 0Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m12 6 1.2 3.3 3.3 1.2-3.3 1.2L12 15l-1.2-3.3L7.5 10.5l3.3-1.2Z" fill="currentColor"/></svg></button>`;
+      panel.innerHTML = `<button type="button" class="guide-launch" data-guide="open" aria-label="Open Tara visual guide" aria-expanded="false" title="Open Tara"><svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8H5l-3 2v-10a9 9 0 0 1 18 0Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m12 6 1.2 3.3 3.3 1.2-3.3 1.2L12 15l-1.2-3.3L7.5 10.5l3.3-1.2Z" fill="currentColor"/></svg><span class="tara-priority-count" hidden></span></button>`;
       window.ContextIQTaraWidget?.mount(panel, {open: false});
       return;
     }
-    if (!target) {
-      panel.innerHTML = `<div class="guide-top"><span>Tara · Ask me here</span><button class="guide-close" type="button" data-guide="minimize" aria-label="Minimize Tara">−</button></div>`;
-      window.ContextIQTaraWidget?.mount(panel, {open: true});
+    if (!current.tour) {
+      panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">✦</span> Tara</span><button type="button" class="guide-close" data-guide="minimize" aria-label="Minimize Tara" title="Minimize Tara">−</button></div>`;
+      window.ContextIQTaraWidget?.mount(panel, {open:true});
+      window.ContextIQTaraWidget?.restoreFocus(writing);
       return;
     }
+    if (!target) return;
 
     highlighted = target.closest(".form-check") || target;
     highlighted.classList.add("guide-target");

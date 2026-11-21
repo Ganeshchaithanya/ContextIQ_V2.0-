@@ -42,7 +42,7 @@ restart stability and rejection of weak secrets.
 
 Test inventory: 35 purchase/budget checks, 24 seller checks, 15 operations checks,
 42 legacy flow checks, 6 experience checks, 2 PostgreSQL integration checks and
-36 JavaScript checks: **160 automated checks**, plus builds and the restore drill.
+40 JavaScript checks: **164 automated checks**, plus builds and the restore drill.
 Python files run in separate processes because each owns its test database settings.
 
 ## Verification limits
@@ -90,6 +90,17 @@ a physical UI check; DOM, pointer, keyboard, boundary, privacy and API paths are
 by the automated checks described above.
 
 Resize from any corner to change width and height independently. Releasing below
-230 px wide or 200 px tall minimizes Tara into the message icon; reopening restores
+230 px wide or 125 px tall minimizes Tara into the message icon; reopening restores
 the last readable rectangle and conversation. Canceling a pointer gesture does not
 minimize the assistant.
+
+
+The normal floating assistant uses a compact composer with one highest-priority
+incomplete task from the server-ranked dashboard list. Priority refreshes are
+bounded to one background read per minute, plus record-change refreshes. Completed
+tasks are skipped, stale refresh failures are disclosed, and the minimized bubble
+shows one priority badge. These are in-app notices, not external push messages.
+Minimize/reopen reattaches the same composer DOM so open evidence sections, draft,
+selection and scroll state remain intact. Financial chat is cleared on session
+changes; the widget keeps the current 12 turns in memory, with saved answers also
+available through the authenticated Ask history.
