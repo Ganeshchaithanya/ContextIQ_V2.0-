@@ -4,7 +4,7 @@ This is a fictional-data hackathon prototype. Passing automated tests does not c
 
 ## Changes in this release
 
-- Glass navigation, cards and widgets preserve the existing routes and green identity. Mobile navigation includes safe-area spacing, with reduced-transparency and reduced-motion fallbacks.
+- Follow-up design correction: the original page backgrounds, fonts, cards, buttons, lime/black palette and Tara/tour styling are restored. Only navigation receives subtle rounded styling and shadows. Functional chart controls and automation/privacy widgets use the original palette. Mobile navigation includes safe-area spacing.
 - Tara has browser-local width (280–520 px), text (12–18 px), and maximum-height (35–85% of screen) controls. The tour remains dismissible and fits smaller screens.
 - Charts use actual recorded day-end balances, stepped changes, exact-value pointer/keyboard inspection, daily source values and 7/30/90-day selection. The axis is explicitly auto-ranged. Forecasts are labelled projections. Changing the chart range does not change the monthly savings baseline.
 - Home shows workspace-specific automation counts, saved explanations, commitments, planned savings, scheduled-check status, provider disclosure and privacy controls. Rules and optional LLM work are distinguished.
@@ -40,7 +40,7 @@ The actual bundled JavaScript QR encoder is decoded with ZXing at three image si
 | 12. Bills/obligations | Pass | Extraction, due dates, recurring advancement and budget effects checked. Humans confirm money paid/received. |
 | 13. Dispute prevention | Pass simulated | Mismatches, evidence, mandates and dispute drafts checked. Original PayPal dispute adapter is mock-tested; no current live/sandbox claim is made. |
 | 14. Payment recovery | Pass simulated | Interrupted response, reconciliation and single settlement checked. External provider outage behavior is tested through controlled failures. |
-| 15. Adaptive home/reminders | Pass logic; visual review unverified | Priority ordering, daily checklist persistence, deduplicated urgency, automatic tour and size controls checked. Apple-inspired rendering requires desktop/iPhone visual review. |
+| 15. Adaptive home/reminders | Pass logic; visual review unverified | Priority ordering, daily checklist persistence, deduplicated urgency, automatic first-visit tour and size controls checked. The original page style is preserved with navigation-only polish; desktop/iPhone rendering still needs visual review. |
 | 16. Proof of intent | Pass | Fingerprint/version/amount/recipient binding, signed mandate and mismatch rejection tested. |
 | 17. Tara answers/guide | Pass supported intents | Financial analysis, reproducible metrics, evidence ownership, persisted runs/checkpoints, scope replies and tour checked. LLM answers remain fallible; voice/microphone permissions need device testing. |
 | 18. Budgeting/planning | Pass | Receipts/purchases/bills propagate to shared balances, savings, affordability and forecasts; automatic long-term purchase plans and manual overrides tested. Estimates are not guarantees. |

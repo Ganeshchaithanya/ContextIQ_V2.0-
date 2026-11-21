@@ -52,14 +52,14 @@ function drawChart(id, source) {
   }
   function paint(selected = null) {
     ctx.clearRect(0, 0, width, height);
-    ctx.font = '11px -apple-system, BlinkMacSystemFont, "DM Sans", sans-serif';
+    ctx.font = '11px "DM Sans", sans-serif';
     ctx.textAlign = "left";
     ctx.setLineDash([]);
     for (const tick of model.ticks) {
-      ctx.strokeStyle = tick.value === 0 ? "#a6b8a5" : "#98afbd26";
+      ctx.strokeStyle = tick.value === 0 ? "#b9c0b5" : "#edf0e9";
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(left, tick.y); ctx.lineTo(width - right, tick.y); ctx.stroke();
-      ctx.fillStyle = "#647584";
+      ctx.fillStyle = "#737a70";
       ctx.fillText(axisMoney(tick.value), 0, tick.y + 4);
     }
     const labels = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
@@ -68,22 +68,22 @@ function drawChart(id, source) {
       ctx.fillText(dayLabel(points[i].date), x(i), height - 9);
     }
     const fill = ctx.createLinearGradient(0, top, 0, height - bottom);
-    fill.addColorStop(0, "#88be6b40"); fill.addColorStop(1, "#88be6b02");
+    fill.addColorStop(0, "#a8e63d40"); fill.addColorStop(1, "#a8e63d02");
     ctx.beginPath(); path();
     ctx.lineTo(x(points.length - 1), height - bottom); ctx.lineTo(x(0), height - bottom); ctx.closePath();
     ctx.fillStyle = fill; ctx.fill();
-    ctx.beginPath(); path(); ctx.strokeStyle = "#4b8246"; ctx.lineWidth = 2.5; ctx.lineJoin = "round";
+    ctx.beginPath(); path(); ctx.strokeStyle = "#6b9824"; ctx.lineWidth = 2.5; ctx.lineJoin = "round";
     ctx.setLineDash(future ? [6, 4] : []); ctx.stroke(); ctx.setLineDash([]);
     points.forEach((point, i) => {
       if (i !== points.length - 1 && (i === 0 || point.balance_minor === points[i - 1].balance_minor)) return;
       ctx.beginPath(); ctx.arc(x(i), y(point.balance_minor), i === points.length - 1 ? 4 : 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = "#4b8246"; ctx.fill();
+      ctx.fillStyle = "#6b9824"; ctx.fill();
     });
     if (selected !== null) {
       ctx.beginPath(); ctx.moveTo(x(selected), top); ctx.lineTo(x(selected), height - bottom);
-      ctx.strokeStyle = "#425e7866"; ctx.setLineDash([3, 4]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = "#737a7066"; ctx.setLineDash([3, 4]); ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
       ctx.beginPath(); ctx.arc(x(selected), y(points[selected].balance_minor), 5, 0, Math.PI * 2);
-      ctx.fillStyle = "#315c36"; ctx.fill();
+      ctx.fillStyle = "#386018"; ctx.fill();
     }
   }
   let selected = points.length - 1;
