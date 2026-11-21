@@ -240,7 +240,6 @@ async function render() {
     .split("/");
   if (!S.csrf) return welcome();
   if (!S.profile.onboarded) return onboarding();
-  if (S.profile.persona === "freelancer" && S.route[0] === "home") return navigate("seller");
   if (S.route[0] === "store") return window.location.assign("/store");
   if (S.route[0] === "cart") return navigate("purchases/before");
   const renderId = (S.renderId = (S.renderId || 0) + 1);

@@ -128,7 +128,7 @@
 .seller-whatif .seller-two { margin-top: 10px; }
 .seller-whatif h3 { font-size: 14px; margin: 0 0 4px; }
 .seller-whatif p { margin: 0 0 4px; }
-details summary { cursor: pointer; font-weight: 650; padding: 8px 0; }
+.seller-page details summary { cursor: pointer; font-weight: 650; padding: 8px 0; }
 
 /* Empty states */
 .seller-empty { text-align: left; }

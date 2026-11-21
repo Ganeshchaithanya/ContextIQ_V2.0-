@@ -6,7 +6,7 @@ const S = {
   route: [],
   dashboard: null,
   invoice: null,
-  persona: "freelancer",
+  persona: "shopkeeper",
   step: 0,
   busy: false,
   stream: null,
@@ -195,7 +195,7 @@ function phaseLabel(route) {
       qr: "Create Dynamic QR",
       scan: "Scan & Pay",
       merchant: "Merchant desk",
-      seller: "Who owes me?",
+      seller: "Back office",
       notices: "Notices",
       notifications: "Notifications",
     }[route] || "Home"
@@ -204,7 +204,15 @@ function phaseLabel(route) {
 
 function welcome() {
   $("#app").innerHTML =
-    `<div class="welcome"><section class="welcome-art"><div class="brand">ContextIQ<b>.</b></div><div><h1>Your work.<br><span>Paid on time.</span></h1><p>Invoices, follow-ups and a clear view of cash.<br>Built for the designer running a studio alone.</p><div class="orb" aria-hidden="true">↗</div></div><div class="eyebrow">THE ONE-PERSON BACK OFFICE</div></section><section class="welcome-form"><div class="welcome-content"><span class="demo-tag">PRIVATE DEMO</span><h2>Meet Meera’s design studio.</h2><p>Six clients, twelve invoices and upcoming bills. See who owes you and plan the next 90 days.</p>${[
+    `<div class="welcome"><section class="welcome-art"><div class="brand">ContextIQ<b>.</b></div><div><h1>Your money.<br><span>Understood.</span></h1><p>A little more clarity. A little more control.<br>For the everyday decisions that matter.</p><div class="orb" aria-hidden="true">↗</div></div><div class="eyebrow">Built around your life</div></section><section class="welcome-form"><div class="welcome-content"><span class="demo-tag">PRIVATE DEMO</span><h2>Make yourself at home.</h2><p>Explore a connected financial workspace with fictional records. Choose a starting point.</p>${[
+      ["student", "P", "Priya", "Student · everyday budgeting"],
+      ["salaried", "A", "Arjun", "Salaried · bills and future plans"],
+      [
+        "shopkeeper",
+        "K",
+        "Kavya",
+        "Kirana shop owner · personal and shop finances",
+      ],
       ["freelancer", "M", "Meera", "Freelance designer · client invoices and cash flow"],
     ]
       .map(
@@ -273,21 +281,12 @@ function onboarding() {
   document.documentElement.lang = S.profile.language;
 }
 function shell() {
-  const studio = S.profile.persona === "freelancer";
-  const primary = studio && S.route[0] === "seller" ? S.route.slice(0, 2).join("/").replace(/\/$/, "") :
-    S.route[0] === "watch" ? "purchases" : S.route[0] || "home",
-    nav = studio ? [
-      ["seller", "⌂", "Who owes me?"],
-      ["seller/invoices", "▤", "Invoices"],
-      ["seller/customers", "♧", "Customers"],
-      ["seller/forecast", "↗", "Cash forecast"],
-      ["seller/bills", "₹", "Bills"],
-      ["ask", "✦", "Ask Tara"],
-    ] : [
+  const primary = S.route[0] === "watch" ? "purchases" : S.route[0] || "home",
+    nav = [
       ["home", "⌂", "Home"],
       ["purchases", "▣", "Purchases"],
       ["budget", "▤", "Budget"],
-      ["seller", "₹", "Receivables"],
+      ["seller", "₹", "Back office"],
       ["activity", "↗", "Activity"],
       ["ask", "✦", "Ask"],
     ];
@@ -298,7 +297,7 @@ function shell() {
     )
     .join("");
   $("#app").innerHTML =
-    `<aside class="sidebar"><a class="brand" href="${studio ? "#/seller" : "#/home"}">ContextIQ<b>.</b></a><nav class="nav" aria-label="Main navigation">${navHtml}</nav><div class="sidebar-bottom"><nav class="nav"><a class="${primary === "preferences" ? "active" : ""}" href="${studio ? "#/seller/settings" : "#/preferences"}"><span class="nav-icon">⚙</span>${esc(t("Preferences"))}</a></nav><p class="sidebar-note"><i></i>${esc(t("Your private financial demo"))}<br>${esc(t("No money moves in this demo"))}</p></div></aside><div class="shell"><header class="topbar"><div class="crumb"><span class="crumb-prefix">${esc(t("Your money, understood."))}</span><strong>${esc(t(phaseLabel(primary)))}</strong></div><div class="top-actions">${
+    `<aside class="sidebar"><a class="brand" href="#/home">ContextIQ<b>.</b></a><nav class="nav" aria-label="Main navigation">${navHtml}</nav><div class="sidebar-bottom"><nav class="nav"><a class="${primary === "preferences" ? "active" : ""}" href="#/preferences"><span class="nav-icon">⚙</span>${esc(t("Preferences"))}</a></nav><p class="sidebar-note"><i></i>${esc(t("Your private financial demo"))}<br>${esc(t("No money moves in this demo"))}</p></div></aside><div class="shell"><header class="topbar"><div class="crumb"><span class="crumb-prefix">${esc(t("Your money, understood."))}</span><strong>${esc(t(phaseLabel(primary)))}</strong></div><div class="top-actions">${
       S.profile.configuration === "separate"
         ? `<div class="workspace"><select aria-label="Financial workspace" id="workspace-select">${[
             ["auto", "Auto"],
@@ -311,7 +310,7 @@ function shell() {
             )
             .join("")}</select></div>`
         : ""
-    }<span class="demo-tag">${esc(t("Demo"))}</span>${studio ? "" : `<a class="header-button" href="#/notices" aria-label="${esc(t("Notices"))}">↗ <span class="label">${esc(t("Notices"))}</span></a><a class="header-button" href="#/notifications" aria-label="${esc(t("Notifications"))}">♧<span id="notification-count"></span></a>`}<a class="avatar" href="${studio ? "#/seller/settings" : "#/preferences"}" aria-label="${esc(t("Preferences"))}">${esc((S.profile.name || "P").slice(0, 2).toUpperCase())}</a></div></header><div id="offline"></div><main id="main" tabindex="-1"><div class="loading">${esc(t("Loading…"))}</div></main></div><nav class="mobile-nav" aria-label="Mobile navigation">${navHtml}</nav>`;
+    }<span class="demo-tag">${esc(t("Demo"))}</span><a class="header-button" href="#/notices" aria-label="${esc(t("Notices"))}">↗ <span class="label">${esc(t("Notices"))}</span></a><a class="header-button" href="#/notifications" aria-label="${esc(t("Notifications"))}">♧<span id="notification-count"></span></a><a class="avatar" href="#/preferences" aria-label="${esc(t("Preferences"))}">${esc((S.profile.name || "P").slice(0, 2).toUpperCase())}</a></div></header><div id="offline"></div><main id="main" tabindex="-1"><div class="loading">${esc(t("Loading…"))}</div></main></div><nav class="mobile-nav" aria-label="Mobile navigation">${navHtml}</nav>`;
   document.documentElement.lang = S.profile.language;
   offlineBanner();
 }
@@ -614,7 +613,7 @@ async function home() {
         : hour < 18
           ? "Good afternoon"
           : "Good evening";
-  return `${head(`${t(greeting)}, ${S.profile.name}.`, "A little clarity for your day.", `<span class="date-label">${date(new Date())}</span>`)}<section class="focus-card daily-checklist reminder-section" aria-labelledby="today-checklist-title">${dailyChecklist(data)}</section>${homeOverview(data)}<div class="quick-actions"><a class="quick-action" href="#/scan"><span class="quick-icon">▦</span><div><h3>${esc(t("Scan & Pay"))}</h3><p>${esc(t("Review a QR before you pay"))}</p></div><span class="arrow">↗</span></a><a class="quick-action" href="#/qr"><span class="quick-icon">＋</span><div><h3>${esc(t("Create Dynamic QR"))}</h3><p>${esc(t("An amount or a complete bill"))}</p></div><span class="arrow">↗</span></a></div><div class="bottom-note">◌ ${esc(t("Fictional data. Simulated payments."))} · ${date(data.as_of)}</div>`;
+  return `${head(`${t(greeting)}, ${S.profile.name}.`, "A little clarity for your day.", `<span class="date-label">${date(new Date())}</span>`)}<section class="focus-card daily-checklist reminder-section" aria-labelledby="today-checklist-title">${dailyChecklist(data)}</section>${homeOverview(data)}<div class="quick-actions"><a class="quick-action" href="#/scan"><span class="quick-icon">▦</span><div><h3>${esc(t("Scan & Pay"))}</h3><p>${esc(t("Review a QR before you pay"))}</p></div><span class="arrow">↗</span></a><a class="quick-action" href="#/qr"><span class="quick-icon">＋</span><div><h3>${esc(t("Create Dynamic QR"))}</h3><p>${esc(t("An amount or a complete bill"))}</p></div><span class="arrow">↗</span></a><a class="quick-action" href="#/seller"><span class="quick-icon">₹</span><div><h3>${esc(t("Back office"))}</h3><p>${esc(t("Invoices, customer dues and cash forecasts"))}</p></div><span class="arrow">↗</span></a></div><div class="bottom-note">◌ ${esc(t("Fictional data. Simulated payments."))} · ${date(data.as_of)}</div>`;
 }
 function tile(title, description, path, icon) {
   return `<a class="tile" href="#/${path}"><span class="tile-icon" aria-hidden="true">${icon}</span><h2>${esc(t(title))}</h2><p>${esc(t(description))}</p><span class="tile-link">${esc(t("View details"))}<span>↗</span></span></a>`;

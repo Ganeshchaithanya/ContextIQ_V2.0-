@@ -1577,6 +1577,7 @@ dialog .actions {
         height: 76px;
         padding: 8px 8px max(8px, env(safe-area-inset-bottom));
         display: flex;
+        overflow-x: auto;
         justify-content: space-around;
         background: #111511;
         z-index: 40;
