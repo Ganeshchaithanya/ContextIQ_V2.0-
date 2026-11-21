@@ -47,11 +47,6 @@ window.ContextIQTaraWidget = (() => {
     const y = 12 + (geometry?.y ?? 1) * Math.max(0, view.height - height - view.bottom - 12);
     Object.assign(target.style, {left: `${x}px`, top: `${y}px`, right: "auto", bottom: "auto"});
   }
-  function dock(corner) {
-    if (!["tl", "tr", "bl", "br"].includes(corner)) return;
-    geometry = {...geometry, x: corner.endsWith("l") ? 0 : 1, y: corner.startsWith("t") ? 0 : 1, width: geometry?.width || 380};
-    save(); place();
-  }
   function setSize(width, height) {
     if (!Number.isFinite(width) || !Number.isFinite(height)) return;
     geometry = {...geometry, x: geometry?.x ?? 1, y: geometry?.y ?? 1, width, height};
@@ -102,7 +97,7 @@ window.ContextIQTaraWidget = (() => {
   function mount(target, {open = false, tour = false} = {}) {
     panel = target; resetSession();
     if (open && !panel.querySelector(".tara-widget-chat")) {
-      panel.insertAdjacentHTML("beforeend", `<div class="tara-placement"><label>Dock <select data-tara-dock aria-label="Tara screen corner"><option value="">Choose corner</option><option value="tl">Top left</option><option value="tr">Top right</option><option value="bl">Bottom left</option><option value="br">Bottom right</option></select></label><button type="button" data-tara-reset>Reset layout</button></div><section class="tara-widget-chat" aria-label="Ask Tara here"><div class="tara-inline-thread" role="log" aria-label="Conversation with Tara" aria-live="polite"></div><form data-tara-chat><label for="tara-inline-question">Ask Tara without leaving this page</label><div class="tara-composer"><input id="tara-inline-question" data-tara-message name="message" maxlength="2000" required placeholder="Ask about your records…" autocomplete="off"><button type="submit" data-tara-send>Send ↗</button></div><p>${S.csrf ? 'Uses your AI privacy choice. <a href="#/transparency">AI &amp; Privacy</a>' : "Start a private demo for answers from your records."}</p></form></section><button class="tara-resize" type="button" data-tara-resize aria-label="Resize Tara: drag or use arrow keys" title="Drag to resize; arrow keys also work">↘</button>`);
+      panel.insertAdjacentHTML("beforeend", `<section class="tara-widget-chat" aria-label="Ask Tara here"><div class="tara-inline-thread" role="log" aria-label="Conversation with Tara" aria-live="polite"></div><form data-tara-chat><label for="tara-inline-question">Ask Tara without leaving this page</label><div class="tara-composer"><input id="tara-inline-question" data-tara-message name="message" maxlength="2000" required placeholder="Ask about your records…" autocomplete="off"><button type="submit" data-tara-send>Send ↗</button></div><p>${S.csrf ? 'Uses your AI privacy choice. <a href="#/transparency">AI &amp; Privacy</a>' : "Start a private demo for answers from your records."}</p></form></section><button class="tara-resize" type="button" data-tara-resize aria-label="Resize Tara: drag or use arrow keys" title="Drag to resize; arrow keys also work">↘</button>`);
       const heading = panel.querySelector(".guide-top > span");
       if (heading) { heading.classList.add("tara-drag-handle"); heading.title = "Drag Tara to move it"; }
       renderChat();
@@ -117,15 +112,15 @@ window.ContextIQTaraWidget = (() => {
     void ask(event.target.querySelector("[data-tara-message]").value);
   });
   widget.addEventListener("input", event => { if (event.target.matches("[data-tara-message]")) draft = event.target.value; });
-  widget.addEventListener("change", event => { if (event.target.matches("[data-tara-dock]")) dock(event.target.value); });
   widget.addEventListener("click", event => {
     if (suppressClick) { suppressClick = false; event.preventDefault(); event.stopImmediatePropagation(); return; }
-    if (event.target.closest("[data-tara-reset]")) { geometry = null; save(); place(); }
   }, true);
   widget.addEventListener("pointerdown", event => {
     if (event.button !== 0) return;
     const resize = event.target.closest("[data-tara-resize]");
-    if (!resize && !event.target.closest(".tara-drag-handle, .guide-launch")) return;
+    const bubble = event.target.closest(".guide-launch");
+    if (!resize && !bubble && event.target.closest("button, input, select, textarea, a")) return;
+    if (!resize && !event.target.closest(".guide-top, .guide-launch")) return;
     const rect = widget.getBoundingClientRect();
     drag = {id: event.pointerId, x: event.clientX, y: event.clientY, rect, resize: Boolean(resize), moved: false};
     widget.setPointerCapture(event.pointerId);
@@ -159,5 +154,5 @@ window.ContextIQTaraWidget = (() => {
   });
   window.addEventListener("resize", () => place(panel, panel?.hasAttribute("data-tour")));
   window.visualViewport?.addEventListener("resize", () => place(panel, panel?.hasAttribute("data-tour")));
-  return {mount, place, resetSession, dock, setSize, ask, captureFocus, restoreFocus};
+  return {mount, place, resetSession, setSize, ask, captureFocus, restoreFocus};
 })();

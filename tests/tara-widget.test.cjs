@@ -27,10 +27,17 @@ function setup() {
   return {context,widget,panel,thread,field,send,events,storage,attrs};
 }
 
-test('assistant docks to all four corners and only geometry enters local storage', () => {
+function dragTo(app, x, y) {
+  const rect=app.panel.getBoundingClientRect();
+  app.events.get('pointerdownfalse')({button:0,pointerId:2,clientX:rect.left+20,clientY:rect.top+20,target:{closest:s=>s.includes('.guide-top')?{}:null}});
+  app.events.get('pointermovefalse')({pointerId:2,clientX:x+20,clientY:y+20,preventDefault(){}});
+  app.events.get('pointerupfalse')({pointerId:2});
+}
+
+test('cursor dragging reaches all four corners without settings or dropdowns', () => {
   const app = setup();
   for (const [corner,x,y] of [['tl',12,12],['tr',608,12],['bl',12,368],['br',608,368]]) {
-    app.widget.dock(corner);
+    dragTo(app,x,y);
     assert.equal(parseFloat(app.panel.style.left),x);
     assert.equal(parseFloat(app.panel.style.top),y);
   }
@@ -103,11 +110,11 @@ test('welcome help makes no authenticated or external model request', async () =
   app.context.api=()=>{throw new Error('Must not call an authenticated API');};
   await app.widget.ask('Where do I see my invoices?');
   assert.match(app.thread.innerHTML,/Back office/);
-  assert.match(app.panel.html,/data-tara-dock/);
+  assert.doesNotMatch(app.panel.html,/data-tara-dock|data-tara-reset|Choose corner|Reset layout/);
 });
 
-test('keyboard resizing and corner selection survive minimize and reopen', () => {
-  const app = setup();app.widget.dock('tl');
+test('cursor position and keyboard resizing survive minimize and reopen', () => {
+  const app = setup();dragTo(app,12,12);
   const before=parseFloat(app.panel.style.width);
   app.events.get('keydownfalse')({target:{matches:()=>true},key:'ArrowRight',preventDefault(){}});
   assert.equal(parseFloat(app.panel.style.width),before+20);

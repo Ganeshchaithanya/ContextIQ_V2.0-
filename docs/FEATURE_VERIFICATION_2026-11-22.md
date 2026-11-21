@@ -26,7 +26,7 @@ external service has been verified.
 | QR to app payment-code entry | PASS | Actual generated QR image decoded independently; HTTPS app link, escaped prefilled code, signature/version/expiry and cross-workspace denial. Client UPI QR also links to app entry. Physical phone camera testing remains unverified. |
 | Post-purchase support | PASS | Delivery, return/replacement windows, warranties, partial refunds and evidence briefcase. Seller actions are simulated. |
 | Tara answers and knowledge base | PASS | Recorded calculations, owned evidence, multilingual responses, reviewed source guides, model intent routing and safe fallback; external model tests use mocks. |
-| Tara visual guide and to-do list | PASS | Automatic seven-step tour for first-time users only, manual Next/Back with no timer, replay and skip/Escape; minimize to a persistent message bubble and reopen the same step; drag, resize and dock to four corners; ask directly in the widget with owned evidence, cross-page conversation continuity and logout isolation; responsive spotlight, recommendation glow and anonymous code-entry cue. User pause/dismiss choices remain respected. |
+| Tara visual guide and to-do list | PASS | Automatic seven-step tour for first-time users only, manual Next/Back with no timer, replay and skip/Escape; minimize to a persistent message bubble and reopen the same step; drag and resize directly with the cursor; ask directly in the widget with owned evidence, cross-page conversation continuity and logout isolation; responsive spotlight, recommendation glow and anonymous code-entry cue. User pause/dismiss choices remain respected. |
 | AI/privacy visibility | PASS | Collapsible impact panel retains its open/closed state when data refreshes.  Actual allocation/priorities/watch/run counts, routing provenance, heartbeat and question-text model opt-out. Opt-out persists when unrelated profile settings change. Generic predefined guide hints are separately disclosed. |
 
 ## Reliability and security checks
@@ -74,8 +74,8 @@ all 20 submissions rather than reducing the test load.
 
 The widget is available on all ContextIQ page routes, welcome, onboarding and page
 errors. It pauses behind modal dialogs so their keyboard focus remains contained.
-Drag the heading or minimized bubble, use the Dock selector for any corner, or drag
-the resize grip (arrow keys also work). Only geometry is saved in browser storage.
+Drag the header or minimized bubble to any position or corner, and drag
+the resize grip (arrow keys also work). There are no Dock or Reset settings. Only geometry is saved in browser storage.
 The current conversation and draft stay in memory across page changes and clear on
 session changes. Questions use the same authenticated, privacy-aware `/api/v2/ask`
 endpoint and evidence renderer as the dedicated Ask page. Welcome help is local
