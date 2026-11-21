@@ -49,7 +49,7 @@ test('chart supports exact inspection with keyboard and pointer', () => {
     setAttribute(key, value) {attrs[key] = value;}, getContext: () => ctx, getBoundingClientRect: () => ({left: 0})};
   app.context.document.getElementById = () => canvas;
   app.run('drawChart("balance-chart", [{date:"2026-11-01",balance_minor:12345,income_minor:12345,expense_minor:0},{date:"2026-11-02",balance_minor:12000,income_minor:0,expense_minor:345}])');
-  assert.equal(canvas.height, 490);
+  assert.equal(canvas.height, 360);
   canvas.onfocus();
   canvas.onkeydown({key: 'Home', preventDefault() {}});
   assert.match(tip.textContent, /123\.45/);

@@ -25,7 +25,7 @@ function drawChart(id, points) {
   const {rows, min, max, ticks} = model;
   const width = canvas.parentElement.getBoundingClientRect().width;
   if (width < 120) return;
-  const height = 245, ratio = Math.min(window.devicePixelRatio || 1, 3);
+  const height = id === "balance-chart" ? 180 : 245, ratio = Math.min(window.devicePixelRatio || 1, 3);
   canvas.width = width * ratio; canvas.height = height * ratio;
   canvas.style.height = `${height}px`; canvas.tabIndex = 0;
   const ctx = canvas.getContext("2d");
