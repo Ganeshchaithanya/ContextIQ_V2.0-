@@ -42,7 +42,7 @@ restart stability and rejection of weak secrets.
 
 Test inventory: 35 purchase/budget checks, 24 seller checks, 15 operations checks,
 42 legacy flow checks, 6 experience checks, 2 PostgreSQL integration checks and
-40 JavaScript checks: **164 automated checks**, plus builds and the restore drill.
+42 JavaScript checks: **166 automated checks**, plus builds and the restore drill.
 Python files run in separate processes because each owns its test database settings.
 
 ## Verification limits
@@ -104,3 +104,10 @@ Minimize/reopen reattaches the same composer DOM so open evidence sections, draf
 selection and scroll state remain intact. Financial chat is cleared on session
 changes; the widget keeps the current 12 turns in memory, with saved answers also
 available through the authenticated Ask history.
+
+The chat composer supports Enter to send, Shift+Enter for a new line and IME
+composition without accidental submission. It grows with typed text, shows the
+submitted question immediately and displays a waiting indicator until a real
+response returns. Incremental reply rendering keeps existing evidence nodes
+intact. Motion uses the ContextIQ palette and respects reduced-motion settings;
+the waiting indicator is not a claim of streamed model output.

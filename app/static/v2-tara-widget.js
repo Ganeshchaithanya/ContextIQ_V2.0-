@@ -4,7 +4,7 @@
 // privacy-aware /ask endpoint as Ask Tara; this widget cannot authorize payments.
 window.ContextIQTaraWidget = (() => {
   const key = "contextiq.tara-position.v2";
-  let geometry = null, panel = null, owner = null, rows = [], draft = "", pending = false;
+  let geometry = null, panel = null, owner = null, rows = [], draft = "", pending = false, pendingQuestion = "";
   let requestNumber = 0, drag = null, suppressClick = false;
   let savedBody = null, savedScroll = 0, savedSelection = null, priority = null, priorityStatus = "loading", priorityAt = 0, priorityLoading = false, priorityQueued = false;
   const rendered = new WeakMap();
@@ -32,7 +32,7 @@ window.ContextIQTaraWidget = (() => {
   }
   function resetSession() {
     if (owner === S.csrf) return;
-    owner = S.csrf; rows = []; draft = ""; pending = false; requestNumber++;
+    owner = S.csrf; rows = []; draft = ""; pending = false; pendingQuestion = ""; requestNumber++;
     savedBody = null; savedScroll = 0; savedSelection = null; priority = null; priorityStatus = "loading"; priorityAt = 0; priorityLoading = false; priorityQueued = false;
     renderChat();
   }
@@ -65,29 +65,56 @@ window.ContextIQTaraWidget = (() => {
   function collapseToBubble() {
     if (typeof guide !== "undefined") guide.minimize();
   }
+  function waitingHtml() {
+    return `<div class="tara-wait"><div class="message user">${escape(pendingQuestion)}</div><p role="status"><span class="sr-only">Tara is checking your records</span><span class="tara-typing" aria-hidden="true"><i></i><i></i><i></i></span></p></div>`;
+  }
   function renderChat() {
     if (!panel) return;
     const thread = panel.querySelector(".tara-inline-thread");
     if (!thread) return;
-    const html = rows.map((row, i) => `<div data-tara-turn="${escape(row.run_id || row.local_id || i)}">${messageHtml(row)}</div>`).join("")
-      + (pending ? '<p class="tara-wait" role="status">Checking your records…</p>' : "");
+    const html = rows.map((row, i) => `<div class="tara-turn" data-tara-turn="${escape(row.run_id || row.local_id || i)}">${messageHtml(row)}</div>`).join("")
+      + (pending ? waitingHtml() : "");
     if (rendered.get(thread) !== html) {
-      const states = new Map();
-      for (const turn of thread.querySelectorAll?.("[data-tara-turn]") || []) {
-        states.set(turn.dataset.taraTurn, [...turn.querySelectorAll("details")].map(detail => detail.open));
-      }
       const scroll = thread.scrollTop;
-      thread.innerHTML = html; rendered.set(thread, html);
-      for (const turn of thread.querySelectorAll?.("[data-tara-turn]") || []) {
-        const open = states.get(turn.dataset.taraTurn);
-        if (open) [...turn.querySelectorAll("details")].forEach((detail, i) => { detail.open = Boolean(open[i]); });
+      const follow = thread.scrollTop + thread.clientHeight >= thread.scrollHeight - 32;
+      if (thread.insertAdjacentHTML) {
+        const existing = new Map([...(thread.querySelectorAll("[data-tara-turn]") || [])].map(node => [node.dataset.taraTurn, node]));
+        const ids = new Set(rows.map((row,i) => String(row.run_id || row.local_id || i)));
+        for (const [id,node] of existing) if (!ids.has(id)) node.remove();
+        rows.forEach((row,i) => {
+          const id=String(row.run_id || row.local_id || i);
+          if (!existing.has(id)) thread.insertAdjacentHTML("beforeend", `<div class="tara-turn" data-tara-turn="${escape(id)}">${messageHtml(row)}</div>`);
+        });
+        thread.querySelector(".tara-wait")?.remove();
+        if (pending) thread.insertAdjacentHTML("beforeend", waitingHtml());
+      } else {
+        const states = new Map();
+        for (const turn of thread.querySelectorAll?.("[data-tara-turn]") || []) states.set(turn.dataset.taraTurn, [...turn.querySelectorAll("details")].map(detail => detail.open));
+        thread.innerHTML = html;
+        for (const turn of thread.querySelectorAll?.("[data-tara-turn]") || []) {
+          const open = states.get(turn.dataset.taraTurn);
+          if (open) [...turn.querySelectorAll("details")].forEach((detail, i) => { detail.open = Boolean(open[i]); });
+        }
       }
-      thread.scrollTop = scroll;
+      rendered.set(thread, html);
+      if (follow && thread.scrollTo) thread.scrollTo({top:thread.scrollHeight,behavior:window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"});
+      else thread.scrollTop = scroll;
     }
     const field = panel.querySelector("[data-tara-message]");
-    if (field) field.value = draft;
+    if (field) {
+      const active = field === document.activeElement ? {start:field.selectionStart,end:field.selectionEnd,scroll:field.scrollTop} : null;
+      if (field.value !== draft) field.value = draft;
+      growComposer(field);
+      if (active) { field.setSelectionRange(active.start,active.end); field.scrollTop = active.scroll; }
+    }
     const send = panel.querySelector("[data-tara-send]");
-    if (send) send.disabled = pending;
+    if (send) send.disabled = pending || !draft.trim();
+  }
+  function growComposer(field) {
+    if (!field?.style) return;
+    field.style.height = "auto";
+    field.style.height = `${Math.min(160,Math.max(56,field.scrollHeight || 56))}px`;
+    field.style.overflowY = field.scrollHeight > 160 ? "auto" : "hidden";
   }
   function captureFocus() {
     const field = panel?.querySelector("[data-tara-message]");
@@ -104,7 +131,7 @@ window.ContextIQTaraWidget = (() => {
     message = String(message || "").trim();
     if (!message || message.length > 2000 || pending) return;
     const session = owner, request = ++requestNumber;
-    draft = ""; pending = true; renderChat();
+    draft = ""; pendingQuestion = message; pending = true; renderChat();
     try {
       const answer = session ? await api("/ask", {message}) : {
         answer: "Start Meera’s private demo to ask about your records. Home shows your cash and priorities, Back office has invoices and clients, and Budget explains bills and savings. Payments always need your approval.",
@@ -126,7 +153,7 @@ window.ContextIQTaraWidget = (() => {
     savedBody = body;
     savedScroll = panel.scrollTop;
     const field = panel.querySelector("[data-tara-message]");
-    if (field) { draft = field.value; savedSelection = {start: field.selectionStart, end: field.selectionEnd}; }
+    if (field) { draft = field.value; savedSelection = {start: field.selectionStart, end: field.selectionEnd, scroll:field.scrollTop}; }
   }
   function paintPriority() {
     if (!panel) return;
@@ -176,7 +203,11 @@ window.ContextIQTaraWidget = (() => {
       if (savedBody) panel.append(savedBody);
       else panel.insertAdjacentHTML("beforeend", `<div class="tara-widget-body"><section class="tara-widget-chat" aria-label="Ask Tara here"><div class="tara-notification" aria-live="polite"></div><div class="tara-inline-thread" role="log" aria-label="Conversation with Tara" aria-live="polite"></div><form data-tara-chat><label class="sr-only" for="tara-inline-question">Ask Tara</label><textarea id="tara-inline-question" data-tara-message name="message" maxlength="2000" rows="2" required placeholder="Ask Tara…" autocomplete="off"></textarea><div class="tara-composer-footer"><span>✦ Your records</span><div>${S.csrf ? '<a class="tara-open-ask" href="#/ask">Open Ask ↗</a>' : ""}<button type="submit" data-tara-send aria-label="Send question">↑</button></div></div><p class="tara-ai-choice">${S.csrf ? '<a href="#/transparency">AI &amp; Privacy</a> · Your approval before any payment' : "Start a private demo for answers from your records."}</p></form></section><button class="tara-resize" type="button" data-tara-resize data-tara-corner="se" aria-label="Resize Tara: drag or use arrow keys" title="Drag to resize; shrink to minimize">↘</button>${["nw", "ne", "sw"].map(corner => `<button class="tara-resize tara-resize-${corner}" type="button" data-tara-resize data-tara-corner="${corner}" aria-label="Resize Tara from ${corner}" title="Drag to resize; shrink to minimize">⋱</button>`).join("")}</div>`);
       renderChat();
-      if (savedSelection) panel.querySelector("[data-tara-message]")?.setSelectionRange(savedSelection.start, savedSelection.end);
+      if (savedSelection) {
+        const field=panel.querySelector("[data-tara-message]");
+        field?.setSelectionRange(savedSelection.start,savedSelection.end);
+        if (field) field.scrollTop=savedSelection.scroll;
+      }
     }
     const heading = panel.querySelector(".guide-top > span");
     if (heading) { heading.classList.add("tara-drag-handle"); heading.title = "Drag Tara to move it"; }
@@ -191,7 +222,12 @@ window.ContextIQTaraWidget = (() => {
     event.preventDefault(); event.stopPropagation();
     void ask(event.target.querySelector("[data-tara-message]").value);
   });
-  widget.addEventListener("input", event => { if (event.target.matches("[data-tara-message]")) draft = event.target.value; });
+  widget.addEventListener("input", event => {
+    if (!event.target.matches("[data-tara-message]")) return;
+    draft = event.target.value; growComposer(event.target);
+    const send = panel?.querySelector("[data-tara-send]");
+    if (send) send.disabled = pending || !draft.trim();
+  });
   widget.addEventListener("click", event => {
     if (suppressClick) { suppressClick = false; event.preventDefault(); event.stopImmediatePropagation(); return; }
   }, true);
@@ -245,6 +281,9 @@ window.ContextIQTaraWidget = (() => {
   widget.addEventListener("pointerup", finishDrag);
   widget.addEventListener("pointercancel", event => { if (drag) drag.collapse = false; finishDrag(event); suppressClick = false; });
   widget.addEventListener("keydown", event => {
+    if (event.target.matches("[data-tara-message]") && event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault(); void ask(event.target.value); return;
+    }
     if (!event.target.matches("[data-tara-resize]")) return;
     const delta = {ArrowLeft: [-20, 0], ArrowRight: [20, 0], ArrowUp: [0, -20], ArrowDown: [0, 20]}[event.key];
     if (!delta) return;

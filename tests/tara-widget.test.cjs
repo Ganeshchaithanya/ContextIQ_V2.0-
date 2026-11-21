@@ -91,7 +91,7 @@ test('duplicate sends are blocked while waiting and the answer survives minimize
   resolve({answer:'Saved reply'}); await pending;
   app.attrs.add('data-open'); app.widget.mount(app.panel,{open:true});
   assert.match(app.thread.innerHTML,/Saved reply/);
-  assert.equal(app.send.disabled,false);
+  assert.equal(app.send.disabled,true);
 });
 
 test('logout discards an in-flight answer and clears the private conversation', async () => {
@@ -107,7 +107,7 @@ test('logout discards an in-flight answer and clears the private conversation', 
 test('offline failure leaves a readable answer and allows a retry', async () => {
   const app = setup(); app.context.api=async()=>{throw new Error('Offline');};
   await app.widget.ask('My cash');
-  assert.match(app.thread.innerHTML,/Offline/);assert.equal(app.send.disabled,false);
+  assert.match(app.thread.innerHTML,/Offline/);assert.equal(app.send.disabled,true);
   app.context.api=async()=>({answer:'Recovered'});await app.widget.ask('Try again');
   assert.match(app.thread.innerHTML,/Recovered/);
 });
@@ -219,4 +219,35 @@ test('an empty recorded priority list clears the minimized notification badge', 
   app.context.api=async()=>({suggestions:[{id:'one',title:'First action'}]});await app.widget.refreshPriority(true);
   app.context.api=async()=>({suggestions:[],focus:null});await app.widget.refreshPriority(true);
   assert.equal(app.badge.hidden,true);assert.match(app.notice.innerHTML,/No pending priorities/);
+});
+
+test('composer grows with text; Enter sends while Shift+Enter and input composition do not', async () => {
+  const app=setup();let calls=0;
+  app.context.api=async()=>{calls++;return {answer:'Reply'};};
+  app.field.style={};app.field.scrollHeight=130;app.field.matches=selector=>selector==='[data-tara-message]';
+  app.field.value='My question';app.events.get('inputfalse')({target:app.field});
+  assert.equal(app.field.style.height,'130px');assert.equal(app.send.disabled,false);
+  const press=options=>app.events.get('keydownfalse')({target:app.field,key:'Enter',preventDefault(){},...options});
+  press({shiftKey:true});press({isComposing:true});assert.equal(calls,0);
+  press({shiftKey:false,isComposing:false});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(calls,1);assert.match(app.thread.innerHTML,/Reply/);
+});
+
+test('incremental replies retain older message nodes and show the question while waiting', async () => {
+  const app=setup(), turns=new Map();let pendingNode=null, resolve;
+  app.thread.querySelectorAll=()=>[...turns.values()];
+  app.thread.querySelector=()=>pendingNode;
+  app.thread.insertAdjacentHTML=(_,html)=>{
+    const match=html.match(/data-tara-turn="([^"]+)"/);
+    if (match) {
+      const id=match[1];turns.set(id,{dataset:{taraTurn:id},remove(){turns.delete(id);},html});
+    } else pendingNode={html,remove(){pendingNode=null;}};
+  };
+  app.context.api=()=>new Promise(done=>{resolve=done;});
+  const first=app.widget.ask('First question');assert.match(pendingNode.html,/First question/);
+  resolve({answer:'First reply'});await first;
+  const original=[...turns.values()][0];original.evidenceExpanded=true;
+  const second=app.widget.ask('Second question');resolve({answer:'Second reply'});await second;
+  assert.equal([...turns.values()][0],original);assert.equal(original.evidenceExpanded,true);
+  assert.equal(turns.size,2);assert.equal(pendingNode,null);
 });

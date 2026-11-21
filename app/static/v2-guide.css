@@ -531,3 +531,24 @@ body:has(#visual-guide[data-open]) #main {
 #visual-guide[data-tour] .tara-priority-title { color: #d7e4cc; }
 
 .tara-notification summary::after { content: "⌄"; margin-left: auto; color: #7a8372; flex-shrink: 0; }
+
+/* Conversational motion and bubbles, using ContextIQ's own palette. */
+#visual-guide .tara-inline-thread .message.user { width: fit-content; max-width: 90%; margin-left: auto; background: #243b1b; color: #f2f8e9; border: 0; border-radius: 15px 15px 4px 15px; }
+#visual-guide .tara-inline-thread .message.assistant { background: transparent; border: 0; box-shadow: none; padding-inline: 2px; }
+#visual-guide .tara-inline-thread .answer-byline { color: #54753b; font-size: 11px; }
+#visual-guide .tara-inline-thread .answer-byline > span:last-child { display: none; }
+#visual-guide .tara-inline-thread .answer-details { background: #f4f7ef; border: 1px solid #dce5d2; border-radius: 10px; }
+#visual-guide .tara-inline-thread .answer-source-link { font-size: 11px; }
+#visual-guide .tara-widget-chat textarea { transition: height 140ms ease; }
+.tara-typing { display: inline-flex; align-items: center; gap: 4px; height: 23px; padding: 3px; }
+.tara-typing i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #6f914f; }
+@media (prefers-reduced-motion: no-preference) {
+  .tara-turn { animation: tara-message-in 180ms ease-out both; }
+  .tara-typing i { animation: tara-thinking 1.2s ease-in-out infinite; }
+  .tara-typing i:nth-child(2) { animation-delay: 150ms; }
+  .tara-typing i:nth-child(3) { animation-delay: 300ms; }
+  #visual-guide[data-minimized] .guide-launch { animation: tara-message-in 140ms ease-out; }
+}
+@keyframes tara-message-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes tara-thinking { 0%,70%,100% { transform: translateY(0); opacity: .45; } 35% { transform: translateY(-3px); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { #visual-guide .tara-widget-chat textarea { transition: none; } }
