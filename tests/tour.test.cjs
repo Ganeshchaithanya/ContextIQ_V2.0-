@@ -5,7 +5,8 @@ const vm = require("node:vm");
 const path = require("node:path");
 
 function setup(saved = {}, viewport = [1280, 900]) {
-  const storage = new Map(Object.entries(saved)), nodes = new Map(), events = new Map();
+  const storage = new Map(Object.entries(saved)), nodes = new Map(), events = new Map(), timers = new Map();
+  let now = 0, nextTimer = 1;
   function element(rect = {left: 20, top: 110, right: 350, bottom: 210, width: 330, height: 100}) {
     const classes = new Set(), attributes = new Map(), children = new Map();
     return {
@@ -34,6 +35,8 @@ function setup(saved = {}, viewport = [1280, 900]) {
     localStorage: {getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value)},
     document: {hidden: false, addEventListener(name, fn) { events.set(name, fn); }},
     window: {innerWidth: viewport[0], innerHeight: viewport[1], setInterval() {},
+      setTimeout(fn, delay) { const id = nextTimer++; timers.set(id, {fn, due: now + delay}); return id; },
+      clearTimeout(id) { timers.delete(id); },
       addEventListener(name, fn) { events.set(name, fn); },
       requestAnimationFrame(fn) { context.frame = fn; return 1; }},
     navigate(route) { context.S.route = route.split("/"); vm.runInContext("guide.clear(); guide.update()", context); },
@@ -42,7 +45,16 @@ function setup(saved = {}, viewport = [1280, 900]) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../app/static/v2-guide.js"), "utf8"), context);
   const update = () => vm.runInContext("guide.update()", context);
   const click = command => query("#visual-guide").click({target: {closest: () => ({dataset: {guide: command}})}});
-  return {context, nodes, storage, events, query, update, click};
+  const tick = milliseconds => {
+    const end = now + milliseconds;
+    while (true) {
+      const next = [...timers].filter(([, timer]) => timer.due <= end).sort((a, b) => a[1].due - b[1].due)[0];
+      if (!next) break;
+      const [id, timer] = next; timers.delete(id); now = timer.due; timer.fn();
+    }
+    now = end;
+  };
+  return {context, nodes, storage, events, query, update, click, tick, timers};
 }
 
 test("automatic tour spotlights and scrolls the first step without changing the page markup", () => {
@@ -75,7 +87,7 @@ test("seven steps navigate automatically, and finish restores normal page presen
   assert.equal(app.storage.get("contextiq.tara-tour.v2"), "seen");
 });
 
-test("Escape and Skip remove the veil, and a completed tour does not repeat automatically", () => {
+test("Escape and Skip stop the current tour; a new visit offers the tour again", () => {
   const app = setup();
   app.update();
   let prevented = false;
@@ -91,7 +103,7 @@ test("Escape and Skip remove the veil, and a completed tour does not repeat auto
   assert.equal(app.query("#tour-spotlight").hidden, true);
   const returning = setup({"contextiq.tara-tour.v2": "seen"});
   returning.update();
-  assert(!returning.query("#visual-guide").attributes.has("data-tour"));
+  assert(returning.query("#visual-guide").attributes.has("data-tour"));
 });
 
 test("mobile panel stays inside the viewport and scroll updates follow the target", () => {
@@ -130,4 +142,61 @@ test("Tara remains available after the tour and on the anonymous payment entry s
   app.click("open");
   assert.match(app.query("#visual-guide").innerHTML, /Your payment starts here/);
   assert.match(app.query("#visual-guide").innerHTML, /never approves a payment/);
+});
+
+
+test("each loaded step stays visible for three seconds and background updates do not reset its timer", () => {
+  const app = setup(); app.update();
+  app.tick(2999);
+  assert.equal(app.context.S.route.join("/"), "home");
+  app.update(); app.tick(1);
+  assert.equal(app.context.S.route.join("/"), "seller");
+  app.tick(3000);
+  assert.equal(app.context.S.route.join("/"), "seller/invoices");
+});
+
+test("minimizing preserves the same step, stops the timer and reopens the full guide", () => {
+  const app = setup(); app.update(); app.tick(3000);
+  const panel = app.query("#visual-guide");
+  app.click("minimize");
+  assert.equal(panel.hidden, false);
+  assert(panel.attributes.has("data-minimized"));
+  assert.match(panel.innerHTML, /Open Tara visual guide/);
+  assert.equal(app.query("#tour-spotlight").hidden, true);
+  app.tick(12000);
+  assert.equal(app.context.S.route.join("/"), "seller");
+  app.click("open");
+  assert.match(panel.innerHTML, /See who owes you/);
+  assert.equal(app.query("#tour-spotlight").hidden, false);
+  app.tick(2999); assert.equal(app.context.S.route.join("/"), "seller");
+  app.tick(1); assert.equal(app.context.S.route.join("/"), "seller/invoices");
+});
+
+test("pause, hidden tabs and modal dialogs prevent automatic navigation", () => {
+  const app = setup(); app.update();
+  app.click("tour-auto"); app.tick(9000);
+  assert.equal(app.context.S.route[0], "home");
+  app.click("tour-auto");
+  app.context.document.hidden = true; app.events.get("visibilitychange")(); app.tick(9000);
+  assert.equal(app.context.S.route[0], "home");
+  app.context.document.hidden = false; app.events.get("visibilitychange")();
+  app.query("#dialog").open = true; app.update(); app.tick(9000);
+  assert.equal(app.context.S.route[0], "home");
+  app.query("#dialog").open = false; app.update(); app.tick(3000);
+  assert.equal(app.context.S.route[0], "seller");
+});
+
+test("a new login starts a fresh tour but ordinary Home visits do not restart it", () => {
+  const app = setup(); app.update(); app.click("tour-skip"); app.update();
+  assert(!app.query("#visual-guide").attributes.has("data-tour"));
+  app.context.S.csrf = "another-fictional-session";
+  app.update();
+  assert(app.query("#visual-guide").attributes.has("data-tour"));
+});
+
+test("the automatic tour finishes at Home for recommendations and stops its timer", () => {
+  const app = setup(); app.update(); app.tick(21000);
+  assert.equal(app.context.S.route.join("/"), "home");
+  assert(!app.query("#visual-guide").attributes.has("data-tour"));
+  assert.equal(app.timers.size, 0);
 });

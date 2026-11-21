@@ -25,7 +25,7 @@ function drawChart(id, points) {
   const {rows, min, max, ticks} = model;
   const width = canvas.parentElement.getBoundingClientRect().width;
   if (width < 120) return;
-  const height = id === "balance-chart" ? 180 : 245, ratio = Math.min(window.devicePixelRatio || 1, 3);
+  const height = id === "balance-chart" ? 140 : 245, ratio = Math.min(window.devicePixelRatio || 1, 3);
   canvas.width = width * ratio; canvas.height = height * ratio;
   canvas.style.height = `${height}px`; canvas.tabIndex = 0;
   const ctx = canvas.getContext("2d");
@@ -97,12 +97,12 @@ function drawChart(id, points) {
 
 function balanceChartCard(data) {
   const f = data.finance, days = S.chartDays || 30, change = f.balance_minor - f.opening_minor;
-  return `<section class="chart-card financial-chart"><div class="section-top"><div><p class="chart-eyebrow">RECORDED CASH · INR</p><h3>Balance over time</h3></div><div class="chart-periods" role="group" aria-label="Chart period">${[7, 30, 90].map(value => `<button type="button" data-chart-days="${value}" aria-pressed="${days === value}">${value}D</button>`).join("")}</div></div><div class="chart-summary"><strong>${money(f.balance_minor)}</strong><span class="${change < 0 ? "negative" : "positive"}">${change < 0 ? "−" : "+"}${money(Math.abs(change))} over ${days} days</span></div><div class="chart-wrap"><canvas id="balance-chart" role="img" aria-label="Daily closing cash from the recorded ledger. Use arrow keys to inspect values."></canvas><span class="chart-tip"></span></div><p class="chart-basis"><i aria-hidden="true"></i>Daily closing balance. Flat days mean no recorded movement.</p><div class="reconciliation">${money(f.opening_minor)} opening + ${money(f.income_minor)} in − ${money(f.expense_minor)} out = <strong>${money(f.balance_minor)}</strong></div><details class="chart-records"><summary>Inspect the daily figures</summary><div class="chart-table-wrap"><table><thead><tr><th>Date</th><th>Money in</th><th>Money out</th><th>Closing balance</th></tr></thead><tbody>${f.chart.map(row => `<tr><td>${esc(date(row.date))}</td><td>${money(row.income_minor || 0)}</td><td>${money(row.expense_minor || 0)}</td><td>${money(row.balance_minor)}</td></tr>`).join("")}</tbody></table></div></details></section>`;
+  return `<section class="chart-card financial-chart"><div class="section-top"><div><p class="chart-eyebrow">RECORDED CASH · INR</p><h3>Balance over time</h3></div><div class="chart-periods" role="group" aria-label="Chart period">${[7, 30, 90].map(value => `<button type="button" data-chart-days="${value}" aria-pressed="${days === value}">${value}D</button>`).join("")}</div></div><div class="chart-summary"><strong>${money(f.balance_minor)}</strong><span class="${change < 0 ? "negative" : "positive"}">${change < 0 ? "−" : "+"}${money(Math.abs(change))} over ${days} days</span></div><div class="chart-wrap"><canvas id="balance-chart" role="img" aria-label="Daily closing cash from the recorded ledger. Use arrow keys to inspect values."></canvas><span class="chart-tip"></span></div><p class="chart-basis"><i aria-hidden="true"></i>Daily closing balance. Flat days mean no recorded movement.</p><details class="chart-records"><summary>Inspect the daily figures &amp; calculation</summary><div class="reconciliation">${money(f.opening_minor)} opening + ${money(f.income_minor)} in − ${money(f.expense_minor)} out = <strong>${money(f.balance_minor)}</strong></div><div class="chart-table-wrap"><table><thead><tr><th>Date</th><th>Money in</th><th>Money out</th><th>Closing balance</th></tr></thead><tbody>${f.chart.map(row => `<tr><td>${esc(date(row.date))}</td><td>${money(row.income_minor || 0)}</td><td>${money(row.expense_minor || 0)}</td><td>${money(row.balance_minor)}</td></tr>`).join("")}</tbody></table></div></details></section>`;
 }
 
 function aiImpact(data) {
   const a = data.allocation, priorities = data.suggestions.filter(row => !row.completed).length;
-  return `<section class="ai-impact" aria-label="Tara's contribution"><div class="ai-impact-heading"><span aria-hidden="true">✦</span><div><h2>Tara connects the dots</h2><p>Updated from your records. Your decisions stay yours.</p></div><a href="#/transparency">AI &amp; privacy ↗</a></div><div class="ai-impact-figures"><a href="#/budget/allocation"><strong>${money(a.committed_minor + a.reserved_minor + a.savings_minor)}</strong><span>planned for bills, reserves &amp; savings</span></a><a href="#/home"><strong>${priorities}</strong><span>remaining priorities, ordered by urgency</span></a><a href="#/ask"><strong>Show the evidence</strong><span>answers with calculations and source records</span></a></div><p class="ai-impact-note">Planning reserves do not move money. Payment always needs your approval.</p></section>`;
+  return `<details class="ai-impact" aria-label="Tara's contribution" ${S.aiImpactCollapsed ? "" : "open"}><summary class="ai-impact-heading"><span aria-hidden="true">✦</span><div><h2>Tara connects the dots</h2><p>Updated from your records. Your decisions stay yours.</p></div><span class="ai-impact-toggle" aria-hidden="true"></span></summary><div class="ai-impact-content"><div class="ai-impact-figures"><a href="#/budget/allocation"><strong>${money(a.committed_minor + a.reserved_minor + a.savings_minor)}</strong><span>planned for bills, reserves &amp; savings</span></a><a href="#/home"><strong>${priorities}</strong><span>remaining priorities, ordered by urgency</span></a><a href="#/ask"><strong>Show the evidence</strong><span>answers with calculations and source records</span></a></div><p class="ai-impact-note">Planning reserves do not move money. Payment always needs your approval. <a href="#/transparency">AI &amp; privacy ↗</a></p></div></details>`;
 }
 
 async function transparencyPage() {
@@ -131,3 +131,7 @@ document.addEventListener("click", event => {
   S.chartDays = days;
   void guarded(render);
 });
+
+document.addEventListener("toggle", event => {
+  if (event.target.matches?.("details.ai-impact")) S.aiImpactCollapsed = !event.target.open;
+}, true);

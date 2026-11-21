@@ -349,7 +349,7 @@ main {
 }
 .overview {
     display: grid;
-    align-items: start;
+    align-items: stretch;
     grid-template-columns: minmax(290px, 0.92fr) minmax(390px, 1.45fr);
     gap: 23px;
 }
@@ -396,8 +396,8 @@ main {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
-    margin-top: 24px;
-    padding-top: 0;
+    margin-top: auto;
+    padding-top: 24px;
 }
 .movement-label {
     display: flex;
@@ -434,7 +434,7 @@ main {
 .chart-periods button { border: 0; border-radius: 999px; background: transparent; color: #58674b; font-size: 11px; min-width: 38px; min-height: 32px; cursor: pointer; }
 .chart-periods button[aria-pressed="true"] { background: #263b1b; color: #edffdf; }
 .chart-summary { display: flex; align-items: baseline; gap: 8px 15px; flex-wrap: wrap; margin: 14px 0 8px; }
-.chart-summary strong { font-family: "Manrope", sans-serif; font-size: clamp(23px, 3vw, 32px); letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+.chart-summary strong { font-family: "Manrope", sans-serif; font-size: clamp(23px, 2.5vw, 28px); letter-spacing: -1px; font-variant-numeric: tabular-nums; }
 .chart-summary span { font-size: 12px; }
 .positive { color: #3d6a20; }
 .negative { color: #a43833; }
@@ -448,7 +448,7 @@ main {
 .chart-table-wrap th:first-child, .chart-table-wrap td:first-child { text-align: left; }
 .chart-table-wrap thead { position: sticky; top: 0; background: #f3f6ef; }
 .chart-wrap .chart-tip { max-width: 240px; white-space: pre-line; line-height: 1.6; pointer-events: none; }
-.financial-chart .chart-wrap { height: 180px; }
+.financial-chart .chart-wrap { height: 140px; margin-top: 10px; }
 .panel .chart-wrap { height: 245px; }
 .ai-impact { padding: 22px 24px; border: 1px solid #c3d5b0; border-radius: 20px; background: #e9f1df; margin-bottom: 22px; }
 .ai-impact-heading { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -1893,3 +1893,14 @@ dialog .actions {
 }
 
 .checkout-merchant-mark { display:grid; place-items:center; width:48px; height:48px; border-radius:14px; background:var(--lime, #aceb32); color:#111; font-size:26px; font-weight:800; flex-shrink:0; }
+
+/* Keep the summary row balanced; expand supporting records only when needed. */
+.financial-chart .chart-basis { margin: 8px 0; font-size: 10px; }
+.financial-chart .chart-records { margin-top: 6px; }
+.ai-impact-heading { cursor: pointer; list-style: none; }
+.ai-impact-heading::-webkit-details-marker { display: none; }
+.ai-impact-toggle { margin-left: auto; font-size: 12px; color: #31541a; border: 1px solid #b7cda2; border-radius: 8px; padding: 8px 12px; }
+.ai-impact-toggle::after { content: "Minimize −"; }
+.ai-impact:not([open]) .ai-impact-toggle::after { content: "Expand +"; }
+.ai-impact:not([open]) { padding-block: 14px; }
+.ai-impact-note a { margin-left: 8px; text-decoration: underline; }

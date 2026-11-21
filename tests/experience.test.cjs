@@ -49,7 +49,7 @@ test('chart supports exact inspection with keyboard and pointer', () => {
     setAttribute(key, value) {attrs[key] = value;}, getContext: () => ctx, getBoundingClientRect: () => ({left: 0})};
   app.context.document.getElementById = () => canvas;
   app.run('drawChart("balance-chart", [{date:"2026-11-01",balance_minor:12345,income_minor:12345,expense_minor:0},{date:"2026-11-02",balance_minor:12000,income_minor:0,expense_minor:345}])');
-  assert.equal(canvas.height, 360);
+  assert.equal(canvas.height, 280);
   canvas.onfocus();
   canvas.onkeydown({key: 'Home', preventDefault() {}});
   assert.match(tip.textContent, /123\.45/);
@@ -78,4 +78,14 @@ test('business forecast renders exact daily records with stepped movement and ro
   assert.match(html, /<title>[^<]*123\.45/);
   assert.match(html, /Day-by-day figures/);
   assert.doesNotMatch(html, /NaN|Infinity/);
+});
+
+test('Tara impact panel can collapse and retains its state on a data refresh', () => {
+  const app = setup();
+  app.context.data = {allocation:{committed_minor:10000,reserved_minor:0,savings_minor:1000},suggestions:[]};
+  assert.match(app.run('aiImpact(data)'), /<details[^>]* open>/);
+  app.events.get('toggle')({target:{open:false,matches:() => true}});
+  assert.doesNotMatch(app.run('aiImpact(data)'), /<details[^>]* open>/);
+  app.events.get('toggle')({target:{open:true,matches:() => true}});
+  assert.match(app.run('aiImpact(data)'), /<details[^>]* open>/);
 });

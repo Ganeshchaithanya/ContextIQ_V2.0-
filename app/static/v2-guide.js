@@ -19,8 +19,31 @@ const guide = (() => {
   let tourIndex = null;
   let spotlightStep = null;
   let spotlightFrame = null;
-  let tourSeen = false;
-  try { tourSeen = localStorage.getItem(tourStorageKey) === "seen"; } catch { /* Use session state. */ }
+  let tourSession = null;
+  let minimized = false;
+  let autoPaused = false;
+  let tourTimer = null;
+  let timerStep = null;
+  function stopTourTimer() {
+    if (tourTimer !== null) window.clearTimeout(tourTimer);
+    tourTimer = null;
+    timerStep = null;
+  }
+  function scheduleTour() {
+    if (!current?.tour || minimized || autoPaused || document.hidden || $("#dialog").open || !$(current.selector)) {
+      stopTourTimer();
+      return;
+    }
+    if (tourTimer !== null && timerStep === current.id) return;
+    stopTourTimer();
+    timerStep = current.id;
+    tourTimer = window.setTimeout(() => {
+      tourTimer = null;
+      if (current?.id !== timerStep || minimized || autoPaused || document.hidden || $("#dialog").open) return;
+      timerStep = null;
+      moveTour(1);
+    }, 3000);
+  }
   const tourSteps = [
     { route: "home", selector: ".balance-card", title: "Start with your money", body: "Available funds shows your recorded cash. Available to spend accounts for bills and planned savings. Your to-do list puts urgent work first." },
     { route: "seller", selector: ".seller-stats", title: "See who owes you", body: "Back office shows business cash, unpaid invoices and overdue clients. Open an invoice from this page to follow up." },
@@ -32,11 +55,14 @@ const guide = (() => {
   ];
 
   function rememberTour() {
-    tourSeen = true;
+    tourSession = S.csrf;
     try { localStorage.setItem(tourStorageKey, "seen"); } catch { /* Use session state. */ }
   }
 
   function startTour() {
+    stopTourTimer();
+    minimized = false;
+    autoPaused = false;
     rememberTour();
     paused = false;
     try { localStorage.setItem(storageKey, "no"); } catch { /* Use session state. */ }
@@ -46,11 +72,13 @@ const guide = (() => {
   }
 
   function moveTour(change) {
+    stopTourTimer();
     const next = tourIndex + change;
     if (next >= tourSteps.length) {
       tourIndex = null;
       rememberTour();
-      update();
+      if (S.route.join("/") === "home") update();
+      else navigate("home");
       return;
     }
     tourIndex = Math.max(0, next);
@@ -215,7 +243,7 @@ const guide = (() => {
       if (!section) {
         const focus = window.ContextIQSeller?.focus;
         return focus ? cue(focus.id, ".seller-alerts .seller-alert .actions a",
-          focus.action, focus.detail) : null;
+          focus.action, focus.detail) : cue("studio-overview", ".seller-stats", "Your business at a glance", "Review cash, outstanding invoices and the next useful action.");
       }
       if (section === "invoices" && S.route[2] === "new") {
         return cue("studio-invoice", "#seller-customer", "Create a client invoice",
@@ -229,7 +257,10 @@ const guide = (() => {
     if (page === "home" && S.dashboard?.focus) {
       const record = S.dashboard.focus;
       const timing = reminderTiming(record, S.dashboard.task_date);
-      if (timing?.tone !== "urgent") return null;
+      if (timing?.tone !== "urgent") {
+        const focus = observationText(record);
+        return cue(`recommendation:${record.id}`, "[data-next-task] .daily-link, .daily-compact:not([hidden]) .daily-link", focus.title, focus.description);
+      }
       const focus = observationText(record);
       return {
         ...cue(
@@ -310,6 +341,8 @@ const guide = (() => {
       const figuresChanged = data.workspace !== previous.workspace ||
         data.flexible_minor !== previous.flexible_minor ||
         JSON.stringify(data.finance) !== JSON.stringify(previous.finance);
+      const impactChanged = figuresChanged || listChanged ||
+        JSON.stringify(data.allocation) !== JSON.stringify(previous.allocation);
       S.dashboard = data;
       S.profile = data.profile;
       const figures = $("[data-home-figures]");
@@ -317,6 +350,8 @@ const guide = (() => {
         figures.outerHTML = homeOverview(data);
         drawChart("balance-chart", data.finance.chart);
       }
+      const impact = $(".ai-impact");
+      if (impactChanged && impact) impact.outerHTML = aiImpact(data);
       if (!listChanged) return;
       const checkedId = document.activeElement?.dataset?.dailyTask;
       const viewControl = document.activeElement?.closest(
@@ -416,39 +451,37 @@ const guide = (() => {
       openAlert = current.id;
       rememberAlert(current.id);
     }
-    panel.hidden =
-      !target ||
-      $("#dialog").open ||
-      Boolean(current.alert && (paused || openAlert !== current.id));
-    panel.toggleAttribute(
-      "data-urgent-alert",
-      Boolean(current?.alert && !panel.hidden),
-    );
-    if (!current?.tour || panel.hidden) hideSpotlight();
+    panel.hidden = !current || $("#dialog").open;
+    const open = !panel.hidden && !minimized && !paused && !dismissed.has(current.id)
+      && (current.tour || (current.alert && openAlert === current.id) || openTip === current.id);
+    panel.toggleAttribute("data-urgent-alert", Boolean(current?.alert && open));
+    panel.toggleAttribute("data-open", open);
+    panel.toggleAttribute("data-minimized", !open);
+    if (!current?.tour || !open) hideSpotlight();
     if (panel.hidden) {
-      panel.removeAttribute("data-open");
+      stopTourTimer();
       panel.textContent = "";
       return;
     }
-
-    const open =
-      !paused &&
-      !dismissed.has(current.id) &&
-      (current.alert || openTip === current.id);
-    panel.toggleAttribute("data-open", open);
     if (!open) {
-      panel.innerHTML = `<button type="button" class="guide-launch" data-guide="open"><span aria-hidden="true">✦</span> ${esc(t("Tara, your visual guide"))}</button>`;
+      stopTourTimer();
+      panel.innerHTML = `<button type="button" class="guide-launch" data-guide="open" aria-label="Open Tara visual guide" aria-expanded="false" title="Open Tara"><svg viewBox="0 0 24 24" width="25" height="25" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8H5l-3 2v-10a9 9 0 0 1 18 0Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m12 6 1.2 3.3 3.3 1.2-3.3 1.2L12 15l-1.2-3.3L7.5 10.5l3.3-1.2Z" fill="currentColor"/></svg></button>`;
+      return;
+    }
+    if (!target) {
+      panel.innerHTML = `<button type="button" class="guide-launch" data-guide="minimize" aria-label="Minimize Tara">✦ Tara</button>`;
+      stopTourTimer();
       return;
     }
 
     highlighted = target.closest(".form-check") || target;
     highlighted.classList.add("guide-target");
     panel.setAttribute("aria-label", t("Tara, your visual guide"));
-    panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">${current.alert ? "◴" : "✦"}</span> ${esc(current.alert ? `Tara · ${current.alert.label}` : t("Tara, your visual guide"))}</span><button type="button" class="guide-close" data-guide="dismiss" aria-label="${esc(t("Dismiss this tip"))}">×</button></div><div class="guide-copy" role="status" aria-live="polite"><h2>${esc(current.title)}</h2><p>${esc(current.body)}</p></div><div class="guide-controls"><button type="button" class="btn green small" data-guide="show">${esc(t("Show me"))} <span aria-hidden="true">↗</span></button><button type="button" class="guide-pause" data-guide="pause">${esc(t("Pause tips"))}</button></div>`;
+    panel.innerHTML = `<div class="guide-top"><span><span class="guide-mark" aria-hidden="true">${current.alert ? "◴" : "✦"}</span> ${esc(current.alert ? `Tara · ${current.alert.label}` : t("Tara, your visual guide"))}</span><button type="button" class="guide-close" data-guide="minimize" aria-label="Minimize Tara" title="Minimize Tara">−</button></div><div class="guide-copy" role="status" aria-live="polite"><h2>${esc(current.title)}</h2><p>${esc(current.body)}</p></div><div class="guide-controls"><button type="button" class="btn green small" data-guide="show">${esc(t("Show me"))} <span aria-hidden="true">↗</span></button><button type="button" class="guide-pause" data-guide="pause">${esc(t("Pause tips"))}</button></div>`;
     if (current.tour) {
       panel.setAttribute("data-tour", "");
       highlighted.classList.add("guide-tour-target");
-      panel.querySelector(".guide-controls").innerHTML = `<div class="guide-tour-status"><span>Step ${tourIndex + 1} of ${tourSteps.length}</span><button type="button" class="guide-pause" data-guide="show">Show me</button></div><div class="guide-tour-buttons"><button type="button" class="btn white small" data-guide="tour-back" ${tourIndex === 0 ? "disabled" : ""}>Back</button><button type="button" class="btn green small" data-guide="tour-next">${tourIndex === tourSteps.length - 1 ? "Finish tour" : "Next"}</button><button type="button" class="guide-pause" data-guide="tour-skip">Skip tour</button></div>`;
+      panel.querySelector(".guide-controls").innerHTML = `<div class="guide-tour-status"><span>Step ${tourIndex + 1} of ${tourSteps.length} · 3 seconds each</span><button type="button" class="guide-pause" data-guide="show">Show me</button></div><div class="guide-tour-buttons"><button type="button" class="guide-pause" data-guide="tour-auto">${autoPaused ? "Resume" : "Pause"}</button><button type="button" class="btn white small" data-guide="tour-back" ${tourIndex === 0 ? "disabled" : ""}>Back</button><button type="button" class="btn green small" data-guide="tour-next">${tourIndex === tourSteps.length - 1 ? "Finish tour" : "Next"}</button><button type="button" class="guide-pause" data-guide="tour-skip">Skip tour</button></div>`;
       if (spotlightStep !== current.id) {
         spotlightStep = current.id;
         target.scrollIntoView({block: "start", behavior: "instant"});
@@ -456,6 +489,7 @@ const guide = (() => {
       }
       positionSpotlight();
     }
+    scheduleTour();
   }
 
   async function updateNextTip() {
@@ -482,8 +516,11 @@ const guide = (() => {
   }
 
   function update() {
-    if (!tourSeen && !paused && S.csrf && S.profile.onboarded && S.route[0] === "home") {
+    if (S.csrf && tourSession !== S.csrf && S.profile.onboarded && S.route[0] === "home") {
       rememberTour();
+      paused = false;
+      minimized = false;
+      autoPaused = false;
       tourIndex = 0;
     }
     const step = tourIndex === null ? null : tourSteps[tourIndex];
@@ -494,26 +531,38 @@ const guide = (() => {
       draw();
       return;
     }
-    if (step) tourIndex = null;
+    if (step) { tourIndex = null; stopTourTimer(); }
     current = pageCue();
     draw();
     void updateNextTip();
   }
 
   function clear() {
-    current = null;
-    openTip = null;
-    openAlert = null;
-    draw();
+    stopTourTimer();
+    removeHighlight();
+    hideSpotlight();
   }
 
   $("#visual-guide").addEventListener("click", (event) => {
     const command = event.target.closest("[data-guide]")?.dataset.guide;
     if (!command || !current) return;
+    if (command === "minimize" || command === "dismiss") {
+      minimized = true;
+      stopTourTimer();
+      draw();
+      $('[data-guide="open"]', $("#visual-guide"))?.focus();
+      return;
+    }
+    if (command === "tour-auto") {
+      autoPaused = !autoPaused;
+      draw();
+      return;
+    }
     if (current.tour) {
       if (command === "tour-next") return moveTour(1);
       if (command === "tour-back") return moveTour(-1);
-      if (["tour-skip", "dismiss", "pause"].includes(command)) {
+      if (["tour-skip", "pause"].includes(command)) {
+        stopTourTimer();
         tourIndex = null;
         rememberTour();
         return update();
@@ -541,6 +590,7 @@ const guide = (() => {
     if (command === "pause") paused = true;
     if (current.alert) openAlert = null;
     if (command === "open") {
+      minimized = false;
       paused = false;
       openTip = current.id;
       dismissed.delete(current.id);
@@ -559,7 +609,8 @@ const guide = (() => {
 
   $("#dialog").addEventListener("close", update);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && current?.alert) draw();
+    if (document.hidden) stopTourTimer();
+    else draw();
   });
   window.setInterval(async () => {
     await refreshHomeFocus();
@@ -599,6 +650,7 @@ const guide = (() => {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && tourIndex !== null && !$("#dialog").open) {
       event.preventDefault();
+      stopTourTimer();
       tourIndex = null;
       rememberTour();
       update();

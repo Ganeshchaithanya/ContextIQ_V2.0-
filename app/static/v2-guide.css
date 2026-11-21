@@ -437,3 +437,17 @@ body:has(#visual-guide[data-open]) #main {
         overflow: auto;
     }
 }
+
+/* The assistant stays reachable as a message bubble when minimized. */
+#visual-guide[data-minimized] { width: 56px; }
+#visual-guide[data-minimized] .guide-launch { width: 56px; height: 56px; padding: 0; display: grid; place-items: center; border-radius: 50%; background: #243b1b; color: #d5f6ae; border: 1px solid #96be68; box-shadow: 0 6px 20px #17230e26; }
+#visual-guide[data-minimized] .guide-launch:hover { background: #36552a; }
+@media (prefers-reduced-motion: no-preference) {
+  .guide-target:not(.guide-tour-target) { animation: tara-recommendation-glow 3s ease-in-out 2; }
+  .daily-task[data-next-task] .daily-link,
+  .daily-compact:not([hidden]) .daily-link { animation: tara-recommendation-glow 3s ease-in-out 2; }
+}
+@keyframes tara-recommendation-glow {
+  0%, 100% { box-shadow: 0 0 0 3px #a8e63d25; }
+  50% { box-shadow: 0 0 0 7px #a8e63d55; background-color: #e9f7d8; }
+}
