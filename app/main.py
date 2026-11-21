@@ -55,6 +55,11 @@ async def lifespan(_app):
     if settings.hosted_demo and (settings.paypal_env != "mock" or len(settings.server_secret) < 32):
         raise RuntimeError("Hosted demo requires the mock payment provider and a generated SERVER_SECRET")
     init_db()
+    import logging
+    from .db import engine
+    logging.getLogger("contextiq.requests").info(json.dumps({
+        "event": "database_ready", "engine": engine.dialect.name,
+        "worker_mode": settings.worker_mode, "schema": "20261121_01"}))
     from .seed import ensure_seed
 
     ensure_seed()
