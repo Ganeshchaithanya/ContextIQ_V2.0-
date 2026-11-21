@@ -143,3 +143,72 @@ def _seed_recent_purchase(db, now) -> None:
     for e in db.scalars(select(LedgerEntry).where(LedgerEntry.case_id == case.id)).all():
         e.occurred_at = now - timedelta(days=8)
     commerce.record_delivery(db, case.id, now - timedelta(days=5))
+
+
+FREELANCER_CUSTOMERS = [  # (name, phone, email, usual payment delay in days)
+    ("Sharma Textiles Pvt Ltd", "+91 90000 11001", "accounts@sharma-textiles.example", 10),
+    ("Kaveri Cafe Co.", "+91 90000 11002", "hello@kaveri-cafe.example", 5),
+    ("Bengaluru Fintech Labs", "+91 90000 11003", "finance@blr-fintech.example", 25),
+    ("Rangoli Weddings & Events", "+91 90000 11004", "team@rangoli-weddings.example", 0),
+    ("Pune Organic Foods LLP", "+91 90000 11005", "billing@puneorganic.example", 15),
+    ("Jaipur Handloom Store", "+91 90000 11006", "shop@jaipurhandloom.example", 30),
+]
+# (number, customer index, issue offset days, due offset days, lines (description, qty, rupees), status, payments (rupees, offset days))
+FREELANCER_INVOICES = [
+    ("INV-0001", 5, -95, -65, [("Brand identity: logo and colour system", 1, 850), ("Brand guidelines PDF", 1, 250)], "paid", [(1100, -60)]),
+    ("INV-0002", 3, -80, -65, [("Wedding invitation suite (print-ready)", 1, 450), ("Save-the-date cards", 2, 60)], "paid", [(570, -50)]),
+    ("INV-0003", 0, -50, -35, [("Packaging design: 3 SKUs", 3, 220)], "part_paid", [(200, -30)]),
+    ("INV-0004", 2, -40, -10, [("Website UI kit in Figma", 1, 1200), ("Design review sessions", 2, 150)], "sent", []),
+    ("INV-0005", 1, -35, -20, [("Cafe menu redesign", 1, 300), ("Menu board illustrations", 4, 35)], "part_paid", [(150, -18)]),
+    ("INV-0006", 4, -6, -2, [("Organic store social media kit", 1, 380)], "sent", []),
+    ("INV-0007", 1, -20, -5, [("Social media templates (12 posts)", 1, 180)], "paid", [(180, -3)]),
+    ("INV-0008", 4, -2, 13, [("Product label design", 2, 95)], "sent", []),
+    ("INV-0009", 2, -1, 29, [("Pitch deck redesign (20 slides)", 1, 950)], "sent", []),
+    ("INV-0010", 5, 0, 30, [("Jaipur summer catalogue layout", 1, 600)], "draft", []),
+    ("INV-0011", 0, 0, 14, [("Festive campaign banners", 5, 40)], "draft", []),
+    ("INV-0012", 3, -40, -25, [("Mehendi and haldi signage", 3, 70)], "sent", []),
+]
+# (name, rupees, due offset days, recurrence)
+FREELANCER_BILLS = [
+    ("Studio rent (shared workspace)", 25000, 4, "monthly"),
+    ("Adobe Creative Cloud", 4230, 6, "monthly"),
+    ("Broadband (home office)", 1199, 11, "monthly"),
+    ("Laptop EMI", 8500, 3, "monthly"),
+    ("GST filing: Q2 return", 6500, 20, "none"),
+]
+
+
+def seed_freelancer_seller(db, owner_id: str) -> None:
+    """Fictional back-office data for a freelance designer (Meera Design Studio). Dates are relative to today."""
+    from datetime import timedelta as td
+
+    from .models import _id
+    from .v2_models import Customer, Personalization, SellerBill, SellerInvoice, SellerInvoiceLine, SellerPayment
+    from .v2_seller import today
+
+    as_of = today()
+    customer_ids = []
+    for name, phone, email, delay in FREELANCER_CUSTOMERS:
+        ident = _id()
+        customer_ids.append(ident)
+        db.add(Customer(id=ident, owner_id=owner_id, name=name, phone=phone, email=email, usual_payment_delay_days=delay))
+    for number, index, issue_off, due_off, lines, status, payments in FREELANCER_INVOICES:
+        total = sum(qty * rupees * 100 for _, qty, rupees in lines)
+        paid = sum(rupees * 100 for rupees, _ in payments)
+        invoice_id = _id()
+        db.add(SellerInvoice(id=invoice_id, owner_id=owner_id, customer_id=customer_ids[index], number=number,
+                             issue_date=as_of + td(days=issue_off), due_date=as_of + td(days=due_off), currency="INR",
+                             status=status, total_minor=total, amount_paid_minor=paid))
+        for description, qty, rupees in lines:
+            db.add(SellerInvoiceLine(invoice_id=invoice_id, description=description, quantity=qty,
+                                     unit_price_minor=rupees * 100, amount_minor=qty * rupees * 100))
+        for rupees, off in payments:
+            db.add(SellerPayment(owner_id=owner_id, invoice_id=invoice_id, amount_minor=rupees * 100, method="upi",
+                                 reference="UPI demo payment", received_on=as_of + td(days=off)))
+    for name, rupees, due_off, recurrence in FREELANCER_BILLS:
+        db.add(SellerBill(owner_id=owner_id, name=name, amount_minor=rupees * 100, due_date=as_of + td(days=due_off),
+                          recurrence=recurrence, paid=False))
+    db.flush()
+    row = db.get(Personalization, owner_id)
+    row.data = row.data | {"seller": {"upi_vpa": "meera.designs@okaxis", "payee_name": "Meera Design Studio",
+                                      "opening_balance_minor": 9000000}}

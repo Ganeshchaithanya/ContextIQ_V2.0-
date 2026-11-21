@@ -192,6 +192,9 @@ def explain(state):
     money = lambda value: f"₹{value / 100:,.2f}"
     facts, destination, evidence = {}, "#/ask", []
     prefs = db.get(Personalization, uid).data
+    if prefs.get("persona") == "freelancer":
+        from .v2_seller import explain_studio
+        return explain_studio(db, uid, state["message"], topic)
     purpose = workspace(prefs)
     bills = sorted([b for b in bill_rows(db, uid) if b["status"] == "open"], key=lambda b: b["due"])
     scoped_bills = [bill for bill in bills if purpose == "all" or bill["purpose"] == purpose]

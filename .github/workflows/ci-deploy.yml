@@ -24,6 +24,11 @@ jobs:
           PAYPAL_ENV: mock
           CONTEXTIQ_LEGACY_TEST_AUTH: "0"
           CONTEXTIQ_MOCK_STORE: ${{ runner.temp }}/contextiq-v2-mock.json
+      - run: python -m pytest tests/test_seller.py -q
+        env:
+          PAYPAL_ENV: mock
+          CONTEXTIQ_LEGACY_TEST_AUTH: "0"
+          CONTEXTIQ_MOCK_STORE: ${{ runner.temp }}/contextiq-seller-mock.json
       - run: python -m pytest tests/test_flows.py -q
         env:
           PAYPAL_ENV: mock

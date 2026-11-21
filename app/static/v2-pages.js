@@ -240,6 +240,7 @@ async function render() {
     .split("/");
   if (!S.csrf) return welcome();
   if (!S.profile.onboarded) return onboarding();
+  if (S.profile.persona === "freelancer" && S.route[0] === "home") return navigate("seller");
   if (S.route[0] === "store") return window.location.assign("/store");
   if (S.route[0] === "cart") return navigate("purchases/before");
   const renderId = (S.renderId = (S.renderId || 0) + 1);
@@ -261,7 +262,7 @@ async function render() {
       watch: watchPage,
       merchant: merchantPage,
     };
-    const page = pages[S.route[0]];
+    const page = pages[S.route[0]] || window.ContextIQSeller?.pages?.[S.route[0]];
     if (!page) throw new Error("Page not found");
     const html = await page();
     if (renderId !== S.renderId) return;
@@ -269,7 +270,7 @@ async function render() {
     document.title = `${t(phaseLabel(S.route[0]))} · ContextIQ`;
     if (S.route[0] === "home")
       drawChart("balance-chart", S.dashboard.finance.chart);
-    if (S.route[1] === "forecast")
+    if (S.route[0] === "budget" && S.route[1] === "forecast")
       drawChart("forecast-chart", S.forecast.points);
     if ($("#qr-image")) {
       const qr = qrcode(0, "M");

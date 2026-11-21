@@ -1,7 +1,7 @@
 """Persisted workspace, commerce and planning records for ContextIQ V2."""
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -130,3 +130,78 @@ class ProviderCheckout(Base):
     order_id: Mapped[str] = mapped_column(String, unique=True)
     method: Mapped[str] = mapped_column(String)
     payment_id: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
+
+
+class Customer(Base):
+    """A seller's client. Owned by the workspace buyer id; scoped on every query."""
+    __tablename__ = "seller_customers"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_id)
+    owner_id: Mapped[str] = mapped_column(String, index=True)
+    name: Mapped[str] = mapped_column(String)
+    phone: Mapped[str] = mapped_column(String, default="")
+    email: Mapped[str] = mapped_column(String, default="")
+    usual_payment_delay_days: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class SellerInvoice(Base):
+    """Seller-issued invoice. Overdue is computed at read time; only stored states live here."""
+    __tablename__ = "seller_invoices"
+    __table_args__ = (UniqueConstraint("owner_id", "number", name="uq_seller_invoice_number"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_id)
+    owner_id: Mapped[str] = mapped_column(String, index=True)
+    customer_id: Mapped[str] = mapped_column(String, ForeignKey("seller_customers.id"), index=True)
+    number: Mapped[str] = mapped_column(String)
+    issue_date: Mapped[date] = mapped_column(Date)
+    due_date: Mapped[date] = mapped_column(Date)
+    currency: Mapped[str] = mapped_column(String, default="INR")
+    status: Mapped[str] = mapped_column(String, default="draft")  # draft | sent | part_paid | paid | cancelled
+    total_minor: Mapped[int] = mapped_column(Integer)
+    amount_paid_minor: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class SellerInvoiceLine(Base):
+    __tablename__ = "seller_invoice_lines"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_id)
+    invoice_id: Mapped[str] = mapped_column(String, ForeignKey("seller_invoices.id"), index=True)
+    description: Mapped[str] = mapped_column(String)
+    quantity: Mapped[int] = mapped_column(Integer)
+    unit_price_minor: Mapped[int] = mapped_column(Integer)
+    amount_minor: Mapped[int] = mapped_column(Integer)
+
+
+class SellerPayment(Base):
+    __tablename__ = "seller_payments"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_id)
+    owner_id: Mapped[str] = mapped_column(String, index=True)
+    invoice_id: Mapped[str] = mapped_column(String, ForeignKey("seller_invoices.id"), index=True)
+    amount_minor: Mapped[int] = mapped_column(Integer)
+    method: Mapped[str] = mapped_column(String, default="upi")
+    reference: Mapped[str] = mapped_column(String, default="")
+    received_on: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class SellerBill(Base):
+    """Recurring or one-off business bill. recurrence is 'none' or 'monthly'."""
+    __tablename__ = "seller_bills"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_id)
+    owner_id: Mapped[str] = mapped_column(String, index=True)
+    name: Mapped[str] = mapped_column(String)
+    amount_minor: Mapped[int] = mapped_column(Integer)
+    due_date: Mapped[date] = mapped_column(Date)
+    recurrence: Mapped[str] = mapped_column(String, default="none")
+    paid: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class SellerBillPayment(Base):
+    __tablename__ = "seller_bill_payments"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_id)
+    owner_id: Mapped[str] = mapped_column(String, index=True)
+    bill_id: Mapped[str] = mapped_column(String, ForeignKey("seller_bills.id"), index=True)
+    amount_minor: Mapped[int] = mapped_column(Integer)
+    paid_on: Mapped[date] = mapped_column(Date)
+    due_date: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)

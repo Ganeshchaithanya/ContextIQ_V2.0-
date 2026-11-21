@@ -121,14 +121,14 @@ async def access_control(request, call_next):
 
 
 class SessionIn(BaseModel):
-    persona: Literal["student", "salaried", "shopkeeper"] = "student"
+    persona: Literal["student", "salaried", "shopkeeper", "freelancer"] = "student"
 
 
 def seed_workspace(db, persona):
     ident = _id()
     buyer_id, seller_id = f"buyer-{ident}", f"seller-{ident}"
-    names = {"student": "Priya", "salaried": "Arjun", "shopkeeper": "Kavya"}
-    balance = {"student": 600000, "salaried": 5800000, "shopkeeper": 9500000}[persona]
+    names = {"student": "Priya", "salaried": "Arjun", "shopkeeper": "Kavya", "freelancer": "Meera"}
+    balance = {"student": 600000, "salaried": 5800000, "shopkeeper": 9500000, "freelancer": 500000}[persona]
     db.add_all([User(id=buyer_id, name=names[persona], uses="personal", available_balance=balance / 100,
                      monthly_income=0, pay_day=1, balance_source="fictional_demo"),
                 User(id=seller_id, name="BrightMart", role="merchant", business_name="BrightMart Electronics")])
@@ -139,7 +139,12 @@ def seed_workspace(db, persona):
                "news_enabled": False, "work_start": 9, "work_end": 18, "cart": [], "persona": persona}
     if persona == "shopkeeper":
         profile.update(business_type="Kirana shop", workspace="business", features=["budget", "purchases", "goals", "emi", "business"])
+    if persona == "freelancer":
+        profile.update(configuration="business", workspace="business", business_type="Freelance design studio")
     db.add(Personalization(user_id=buyer_id, data=profile))
+    if persona == "freelancer":
+        from .seed import seed_freelancer_seller
+        seed_freelancer_seller(db, buyer_id)
     # The opening entry and dated expenses reconcile exactly to the chosen persona's funds.
     seed_date = now() - timedelta(days=35)
     db.add(LedgerEntry(user_id=buyer_id, payee="Demo opening funds", description="Fictional opening funds", category="opening",

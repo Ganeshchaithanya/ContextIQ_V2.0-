@@ -166,6 +166,21 @@ const guide = (() => {
     )
       return null;
     const [page, section] = S.route;
+    if (page === "seller") {
+      if (!section) {
+        const focus = window.ContextIQSeller?.focus;
+        return focus ? cue(focus.id, ".seller-alerts .seller-alert .actions a",
+          focus.action, focus.detail) : null;
+      }
+      if (section === "invoices" && S.route[2] === "new") {
+        return cue("studio-invoice", "#seller-customer", "Create a client invoice",
+          "Choose the client, enter the work and due date, then review your draft before sharing.");
+      }
+      if (section === "forecast") {
+        return cue("studio-forecast", "#seller-whatif-customer", "Test a late payment",
+          "Choose the client and delay to see how your cash forecast changes before deciding what to do.");
+      }
+    }
     if (page === "home" && S.dashboard?.focus) {
       const record = S.dashboard.focus;
       const timing = reminderTiming(record, S.dashboard.task_date);

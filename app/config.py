@@ -39,6 +39,9 @@ class Settings:
     public_base_url: str = os.getenv("PUBLIC_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "http://localhost:8000"
     app_url: str = os.getenv("CONTEXTIQ_APP_URL", "").rstrip("/")
     store_url: str = os.getenv("CONTEXTIQ_STORE_URL", "http://127.0.0.1:8001").rstrip("/")
+    # Seller back office: default UPI payee (sample VPA; each owner can override in /api/v2/seller/settings).
+    seller_upi_vpa: str = os.getenv("SELLER_UPI_VPA", "meera.designs@okaxis")
+    seller_payee_name: str = os.getenv("SELLER_PAYEE_NAME", "Meera Design Studio")
 
     # Optional GenAI reasoning layer (Anthropic Messages API). Without a key,
     # ContextIQ uses deterministic templates for explanations.

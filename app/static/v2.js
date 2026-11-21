@@ -6,7 +6,7 @@ const S = {
   route: [],
   dashboard: null,
   invoice: null,
-  persona: "shopkeeper",
+  persona: "freelancer",
   step: 0,
   busy: false,
   stream: null,
@@ -79,13 +79,14 @@ function publishWorkspaceUpdate() {
 }
 
 function consumesWorkspaceRecords(route) {
-  return ["home", "budget", "invoice", "watch", "purchases", "activity", "notifications", "merchant"].includes(route);
+  return ["home", "budget", "invoice", "watch", "purchases", "activity", "notifications", "merchant", "seller"].includes(route);
 }
 
 async function refreshChangedWorkspace() {
   if (!workspaceRefreshPending || refreshingWorkspace || !S.csrf ||
       document.hidden || !navigator.onLine || S.busy || $("#dialog").open ||
       !consumesWorkspaceRecords(S.route[0])) return;
+  if (S.route[0] === "seller" && document.activeElement?.closest("form")) return;
   workspaceRefreshPending = false;
   refreshingWorkspace = true;
   try {
@@ -194,6 +195,7 @@ function phaseLabel(route) {
       qr: "Create Dynamic QR",
       scan: "Scan & Pay",
       merchant: "Merchant desk",
+      seller: "Who owes me?",
       notices: "Notices",
       notifications: "Notifications",
     }[route] || "Home"
@@ -202,15 +204,8 @@ function phaseLabel(route) {
 
 function welcome() {
   $("#app").innerHTML =
-    `<div class="welcome"><section class="welcome-art"><div class="brand">ContextIQ<b>.</b></div><div><h1>Your money.<br><span>Understood.</span></h1><p>A little more clarity. A little more control.<br>For the everyday decisions that matter.</p><div class="orb" aria-hidden="true">↗</div></div><div class="eyebrow">Built around your life</div></section><section class="welcome-form"><div class="welcome-content"><span class="demo-tag">PRIVATE DEMO</span><h2>Make yourself at home.</h2><p>Explore a connected financial workspace with fictional records. Choose a starting point.</p>${[
-      ["student", "P", "Priya", "Student · everyday budgeting"],
-      ["salaried", "A", "Arjun", "Salaried · bills and future plans"],
-      [
-        "shopkeeper",
-        "K",
-        "Kavya",
-        "Kirana shop owner · personal and shop finances",
-      ],
+    `<div class="welcome"><section class="welcome-art"><div class="brand">ContextIQ<b>.</b></div><div><h1>Your work.<br><span>Paid on time.</span></h1><p>Invoices, follow-ups and a clear view of cash.<br>Built for the designer running a studio alone.</p><div class="orb" aria-hidden="true">↗</div></div><div class="eyebrow">THE ONE-PERSON BACK OFFICE</div></section><section class="welcome-form"><div class="welcome-content"><span class="demo-tag">PRIVATE DEMO</span><h2>Meet Meera’s design studio.</h2><p>Six clients, twelve invoices and upcoming bills. See who owes you and plan the next 90 days.</p>${[
+      ["freelancer", "M", "Meera", "Freelance designer · client invoices and cash flow"],
     ]
       .map(
         ([id, initial, name, description]) =>
@@ -278,11 +273,21 @@ function onboarding() {
   document.documentElement.lang = S.profile.language;
 }
 function shell() {
-  const primary = S.route[0] === "watch" ? "purchases" : S.route[0] || "home",
-    nav = [
+  const studio = S.profile.persona === "freelancer";
+  const primary = studio && S.route[0] === "seller" ? S.route.slice(0, 2).join("/").replace(/\/$/, "") :
+    S.route[0] === "watch" ? "purchases" : S.route[0] || "home",
+    nav = studio ? [
+      ["seller", "⌂", "Who owes me?"],
+      ["seller/invoices", "▤", "Invoices"],
+      ["seller/customers", "♧", "Customers"],
+      ["seller/forecast", "↗", "Cash forecast"],
+      ["seller/bills", "₹", "Bills"],
+      ["ask", "✦", "Ask Tara"],
+    ] : [
       ["home", "⌂", "Home"],
       ["purchases", "▣", "Purchases"],
       ["budget", "▤", "Budget"],
+      ["seller", "₹", "Receivables"],
       ["activity", "↗", "Activity"],
       ["ask", "✦", "Ask"],
     ];
@@ -293,7 +298,7 @@ function shell() {
     )
     .join("");
   $("#app").innerHTML =
-    `<aside class="sidebar"><a class="brand" href="#/home">ContextIQ<b>.</b></a><nav class="nav" aria-label="Main navigation">${navHtml}</nav><div class="sidebar-bottom"><nav class="nav"><a class="${primary === "preferences" ? "active" : ""}" href="#/preferences"><span class="nav-icon">⚙</span>${esc(t("Preferences"))}</a></nav><p class="sidebar-note"><i></i>${esc(t("Your private financial demo"))}<br>${esc(t("No money moves in this demo"))}</p></div></aside><div class="shell"><header class="topbar"><div class="crumb"><span class="crumb-prefix">${esc(t("Your money, understood."))}</span><strong>${esc(t(phaseLabel(primary)))}</strong></div><div class="top-actions">${
+    `<aside class="sidebar"><a class="brand" href="${studio ? "#/seller" : "#/home"}">ContextIQ<b>.</b></a><nav class="nav" aria-label="Main navigation">${navHtml}</nav><div class="sidebar-bottom"><nav class="nav"><a class="${primary === "preferences" ? "active" : ""}" href="${studio ? "#/seller/settings" : "#/preferences"}"><span class="nav-icon">⚙</span>${esc(t("Preferences"))}</a></nav><p class="sidebar-note"><i></i>${esc(t("Your private financial demo"))}<br>${esc(t("No money moves in this demo"))}</p></div></aside><div class="shell"><header class="topbar"><div class="crumb"><span class="crumb-prefix">${esc(t("Your money, understood."))}</span><strong>${esc(t(phaseLabel(primary)))}</strong></div><div class="top-actions">${
       S.profile.configuration === "separate"
         ? `<div class="workspace"><select aria-label="Financial workspace" id="workspace-select">${[
             ["auto", "Auto"],
@@ -306,7 +311,7 @@ function shell() {
             )
             .join("")}</select></div>`
         : ""
-    }<span class="demo-tag">${esc(t("Demo"))}</span><a class="header-button" href="#/notices" aria-label="${esc(t("Notices"))}">↗ <span class="label">${esc(t("Notices"))}</span></a><a class="header-button" href="#/notifications" aria-label="${esc(t("Notifications"))}">♧<span id="notification-count"></span></a><a class="avatar" href="#/preferences" aria-label="${esc(t("Preferences"))}">${esc((S.profile.name || "P").slice(0, 2).toUpperCase())}</a></div></header><div id="offline"></div><main id="main" tabindex="-1"><div class="loading">${esc(t("Loading…"))}</div></main></div><nav class="mobile-nav" aria-label="Mobile navigation">${navHtml}</nav>`;
+    }<span class="demo-tag">${esc(t("Demo"))}</span>${studio ? "" : `<a class="header-button" href="#/notices" aria-label="${esc(t("Notices"))}">↗ <span class="label">${esc(t("Notices"))}</span></a><a class="header-button" href="#/notifications" aria-label="${esc(t("Notifications"))}">♧<span id="notification-count"></span></a>`}<a class="avatar" href="${studio ? "#/seller/settings" : "#/preferences"}" aria-label="${esc(t("Preferences"))}">${esc((S.profile.name || "P").slice(0, 2).toUpperCase())}</a></div></header><div id="offline"></div><main id="main" tabindex="-1"><div class="loading">${esc(t("Loading…"))}</div></main></div><nav class="mobile-nav" aria-label="Mobile navigation">${navHtml}</nav>`;
   document.documentElement.lang = S.profile.language;
   offlineBanner();
 }

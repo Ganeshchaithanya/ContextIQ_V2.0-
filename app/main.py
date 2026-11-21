@@ -70,6 +70,7 @@ app = FastAPI(title="ContextIQ", version="0.2.0", lifespan=lifespan,
               openapi_url=None if settings.hosted_demo else "/openapi.json")
 from .v2 import access_control, router as v2_router
 from . import v2_business  # Registers business routes on the same session-scoped router.
+from . import v2_seller  # Registers seller back-office routes (customers, invoices, forecast) on the same router.
 from . import v2_checkout, v2_watch
 app.include_router(v2_router)
 app.middleware("http")(access_control)
