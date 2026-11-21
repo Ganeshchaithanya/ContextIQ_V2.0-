@@ -6,7 +6,7 @@ const S = {
   route: [],
   dashboard: null,
   invoice: null,
-  persona: "shopkeeper",
+  persona: "freelancer",
   step: 0,
   busy: false,
   stream: null,
@@ -205,14 +205,6 @@ function phaseLabel(route) {
 function welcome() {
   $("#app").innerHTML =
     `<div class="welcome"><section class="welcome-art"><div class="brand">ContextIQ<b>.</b></div><div><h1>Your money.<br><span>Understood.</span></h1><p>A little more clarity. A little more control.<br>For the everyday decisions that matter.</p><div class="orb" aria-hidden="true">↗</div></div><div class="eyebrow">Built around your life</div></section><section class="welcome-form"><div class="welcome-content"><span class="demo-tag">PRIVATE DEMO</span><h2>Make yourself at home.</h2><p>Explore a connected financial workspace with fictional records. Choose a starting point.</p>${[
-      ["student", "P", "Priya", "Student · everyday budgeting"],
-      ["salaried", "A", "Arjun", "Salaried · bills and future plans"],
-      [
-        "shopkeeper",
-        "K",
-        "Kavya",
-        "Kirana shop owner · personal and shop finances",
-      ],
       ["freelancer", "M", "Meera", "Freelance designer · client invoices and cash flow"],
     ]
       .map(
