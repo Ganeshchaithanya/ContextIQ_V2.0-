@@ -327,6 +327,7 @@
       title: "Cash forecast",
       subtitle: `Projected balance over the next ${horizon} days, from open invoices and bills.`,
       html: `${warning}
+        <p class="notice">Recorded commitments scenario: no new work or future income beyond open invoices is assumed. This is a run-off projection, not a prediction of your future earnings.</p>
         <div class="stat-row seller-stats">${stat("Opening balance", rupee(forecast.opening_minor))}${stat("Expected receipts", rupee(receipts), "positive")}${stat("Bills due", rupee(bills), "negative")}${stat(`Balance in ${horizon} days`, rupee(ending))}</div>
         <section class="panel"><div class="section-top"><h2>${esc(t("Projected balance"))}</h2><div class="seller-chips" role="group" aria-label="Forecast length">${chips}</div></div>
           ${forecastChart(series, `Projected balance for ${horizon} days, lowest ${rupee(minDay.balance_minor)}`)}
@@ -336,7 +337,7 @@
           <details><summary>Day-by-day figures</summary><div class="table-wrap"><table class="seller-table"><caption>Projected balance by day</caption><thead><tr><th scope="col">Date</th><th scope="col" class="num">Receipts</th><th scope="col" class="num">Bills</th><th scope="col" class="num">Balance</th></tr></thead><tbody>${rows}</tbody></table></div></details>
         </section>
         <section class="panel seller-form" aria-labelledby="seller-whatif-title"><h2 id="seller-whatif-title">${esc(t("What if a client pays late?"))}</h2>
-          <p class="field-hint">Move the selected client’s expected receipts 15 days later and compare the cash gap before taking action.</p>
+          <p class="field-hint">Choose a client and delay from 0 to 120 days to compare the cash gap. A small invoice may have little effect; the scenario does not inflate receipts to create a warning.</p>
           <form id="seller-whatif-form">
             <div class="seller-two">
               <div class="form-field"><label for="seller-whatif-customer">Client</label><select id="seller-whatif-customer" name="customer_id">${options}</select></div>

@@ -1,6 +1,8 @@
 /* Seller back office. Extends v2.css tokens (--green, --line, --muted, --red, --soft, --radius). */
 
-.seller-page { max-width: 1120px; display: grid; gap: 18px; }
+.seller-page { max-width: 1120px; min-width: 0; display: grid; gap: 18px; }
+.seller-page > *, .seller-page .panel { min-width: 0; }
+.seller-page .table-wrap { position: relative; width: 100%; max-width: 100%; overflow-x: auto; }
 .seller-tabs { flex-wrap: wrap; margin-bottom: 4px; }
 .seller-tabs a:focus-visible,
 .seller-page a:focus-visible,

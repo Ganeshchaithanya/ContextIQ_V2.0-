@@ -1,4 +1,5 @@
-import { copyFile, mkdir, readFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 
 const source = new URL("app/static/", import.meta.url);
 const output = new URL("contextiq-dist/", import.meta.url);
@@ -11,7 +12,18 @@ const assets = new Set(
 assets.add("upi.svg");
 
 await mkdir(outputAssets, { recursive: true });
-await copyFile(page, new URL("index.html", output));
+const scripts = [...html.matchAll(/<script src="\/static\/([\w.-]+)" defer><\/script>/g)];
+const bundle = (await Promise.all(scripts.map(async ([, name]) => `/* ${name} */\n${await readFile(new URL(name, source), "utf8")}\n;`))).join("\n");
+const hash = createHash("sha256").update(bundle).digest("hex").slice(0, 12);
+const filename = `contextiq-${hash}.js`;
+await writeFile(new URL(filename, outputAssets), bundle);
+let first = true;
+const builtHtml = html.replace(/<script src="\/static\/[\w.-]+" defer><\/script>/g, () => {
+  if (!first) return "";
+  first = false;
+  return `<script src="/static/${filename}" defer></script>`;
+});
+await writeFile(new URL("index.html", output), builtHtml);
 await Promise.all(
   [...assets].map((name) => copyFile(new URL(name, source), new URL(name, outputAssets))),
 );

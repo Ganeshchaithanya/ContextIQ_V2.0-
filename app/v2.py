@@ -496,7 +496,8 @@ def daily_suggestions(db, user_id, purpose, notes, plans, allocation=None):
                              "destination": f"#/budget/goals/{plan.id}",
                              "data": {"title": plan.title, "amount_minor": data["target_minor"] - data["saved_minor"]}})
     today = datetime.fromisoformat(daily_date()).date()
-    ranked = sorted(eligible, key=lambda note: (-reminder_priority(note, today), note["data"].get("due") or ""))
+    ranked = sorted(eligible, key=lambda note: (-reminder_priority(note, today),
+                    -note["data"].get("amount_minor", 0), note["data"].get("due") or ""))
     result, destinations = [], set()
     for note in ranked:
         if note["destination"] in destinations:

@@ -38,6 +38,39 @@ def make_customer(client, name="Test Client Pvt Ltd", delay=0, phone="+91 90000 
     return response.json()
 
 
+def test_client_delay_question_combines_cash_bills_and_correct_client(client):
+    new_session(client, "freelancer")
+    before = client.get('/api/v2/dashboard').json()['finance']['balance_minor']
+    result = client.post('/api/v2/ask', json={'message': "Can I afford rent and the laptop EMI this week if Bengaluru Fintech Labs doesn't pay until January?"}).json()
+    assert result['topic'] == 'cash_scenario'
+    assert result['answer'].startswith('Yes.')
+    scenario = result['analysis']['scenario']
+    assert scenario['client_name'] == 'Bengaluru Fintech Labs'
+    assert scenario['opening_minor'] == before
+    assert scenario['bills_minor'] == (25000 + 8500 + 4230) * 100
+    assert scenario['cash_after_bills_minor'] == before - scenario['bills_minor']
+    assert any(b['title'] == 'Laptop EMI' for b in scenario['bills'])
+    assert 'INV-0004' in result['answer'] or any('INV-0004' in r['label'] for r in result['analysis']['records'])
+    assert 'INV-0003' not in result['answer']
+    assert 'January' in ' '.join(result['analysis']['assumptions'])
+    assert client.get('/api/v2/dashboard').json()['finance']['balance_minor'] == before
+
+
+def test_emi_answer_uses_back_office_bill_without_loan_schedule(client):
+    new_session(client, 'freelancer')
+    result = client.post('/api/v2/ask', json={'message': 'Show my laptop EMI'}).json()
+    assert result['topic'] == 'emi'
+    assert 'Laptop EMI' in result['answer'] and '8,500' in result['answer']
+    assert 'separate loan amortization schedule is not recorded' in result['answer']
+
+
+def test_unknown_scenario_client_requests_clarification(client):
+    new_session(client, 'freelancer')
+    result = client.post('/api/v2/ask', json={'message': "Can I afford rent this week if Unknown Customer doesn't pay until January?"}).json()
+    assert result['topic'] == 'cash_scenario'
+    assert result['answer'].startswith('Which client')
+
+
 @pytest.mark.parametrize("question", ["how's my financial conditions", "How is my financial health?", "How am I doing financially?"])
 def test_financial_overview_has_reproducible_analysis(client, question, monkeypatch):
     from app import v2_intelligence

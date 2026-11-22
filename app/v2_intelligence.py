@@ -85,9 +85,9 @@ TEXT = {
 PATTERNS = [
     ("overview", r"financ(?:ial|e).*?(?:condition|health|situation|position|overview|summary|status|doing)|(?:overall|analyse|analyze|assess|review).*?(?:financ|business|money)|how.*?(?:business|finances).*?(?:doing|look)|how.*doing financially|my finances|money situation|वित्तीय स्थिति|आर्थिक स्थिति|ಆರ್ಥಿಕ ಸ್ಥಿತಿ"),
     ("safety", r"scam|fraud|suspicious|urgent|धोखा|ठगी|ವಂಚನೆ|ಮೋಸ"),
-    ("emi", r"emi|installment|किस्त|किश्त|ಕಂತು"),
+    ("emi", r"\bemi\b|\binstal+ments?\b|\brepayments?\b|किस्त|किश्त|ಕಂತು"),
     ("afford", r"afford|buy|headphone|खरीद|खरीदना|खर्च कर|ಖರೀದಿಸ|ಹೆಡ್|ಸಾಧ್ಯ"),
-    ("payment", r"payment|recover|failed|interruption|भुगतान|ಪಾವತಿ"),
+    ("payment", r"\bpayment\b|\brecover\b|failed|interruption|bank debit|भुगतान|ಪಾವತಿ"),
     ("purchase", r"return|refund|replace|warranty|deliver|briefcase|investigat|purchase|वापस|बदल|वारंटी|डिलीवरी|खरीदारी|ಖರೀದಿ|ವಾಪಸ|ಬದಲ|ವಾರಂಟಿ|ವಿತರಣ"),
     ("bills", r"bill|due|rent|hostel|बिल|देय|किराया|ಬಿಲ್|ಬಾಕಿ|ಬಾಡಿಗೆ"),
     ("goal", r"goal|saving|laptop|लक्ष्य|बचत|ಗುರಿ|ಉಳಿತಾಯ"),
@@ -183,8 +183,13 @@ def classify_with_model(message: str) -> str | None:
 
 def route(state):
     message = state["message"].lower()
-    if re.search(r"^(pay\b|transfer\b|send money\b|approve payment\b|पैसे भेज|भुगतान करो|ಹಣ ಕಳುಹಿ)", message):
+    if re.search(r"^(?:please\s+)?(pay\b|transfer\b|send money\b|approve (?:this )?payment\b|पैसे भेज|भुगतान करो|ಹಣ ಕಳುಹಿ)", message):
         return {"topic": "blocked", "routing": "rules"}
+    from .v2_scenarios import is_cash_scenario
+    if is_cash_scenario(message):
+        return {"topic": "cash_scenario", "routing": "records_scenario"}
+    if re.search(r"who owes|receivables|clients? pay late|clients? .*delay", message):
+        return {"topic": "studio", "routing": "rules"}
     from .knowledge import find_guide
     if find_guide(message):
         return {"topic": "knowledge", "routing": "reviewed_guide"}
@@ -202,6 +207,9 @@ def explain(state, runtime: Runtime[AgentContext]):
     template = TEXT[lang]
     money = lambda value: f"₹{value / 100:,.2f}"
     facts, destination, evidence = {}, "#/ask", []
+    if topic == "cash_scenario":
+        from .v2_scenarios import cash_scenario
+        return cash_scenario(db, uid, state['message'])
     if topic == "knowledge":
         from .knowledge import find_guide
         article = find_guide(state["message"])
@@ -218,8 +226,7 @@ def explain(state, runtime: Runtime[AgentContext]):
         return {"answer": overview_answer(analysis), "destination": "#/budget/allocation",
                 "evidence": ["authorized_ledger", "recorded_obligations"], "analysis": analysis}
     prefs = db.get(Personalization, uid).data
-    if prefs.get("persona") == "freelancer" and topic not in (
-            "budget", "afford", "payment", "purchase", "goal", "emi", "safety", "blocked"):
+    if prefs.get("persona") == "freelancer" and topic in ("notices", "studio"):
         from .v2_seller import explain_studio
         return explain_studio(db, uid, state["message"], topic)
     purpose = workspace(prefs)
@@ -285,6 +292,12 @@ def explain(state, runtime: Runtime[AgentContext]):
             facts = {"title": plan.title, "count": len(unpaid), "amount": money(sum(e["amount_minor"] for e in unpaid))}
         elif plan:
             facts = {"title": plan.title, "saved": money(plan.data["saved_minor"]), "amount": money(plan.data["target_minor"])}
+        elif topic == "emi":
+            recorded = [bill for bill in scoped_bills if re.search(r"\bemi\b|installment|instalment", bill['title'], re.I)]
+            if recorded:
+                return {"topic": "emi", "answer": "Recorded EMI bills: " + "; ".join(f"{bill['title']} · {money(bill['amount_minor'])} · due {bill['due']}" for bill in recorded) + ". A separate loan amortization schedule is not recorded. These bills are included in your cash forecast and allocation.",
+                        "destination": "#/seller/bills", "evidence": [bill['id'] for bill in recorded]}
+            topic = "empty_emi"
         else:
             topic = "empty_emi" if topic == "emi" else "fallback"
         destination = "#/budget/emi" if state["topic"] == "emi" else "#/budget/goals"

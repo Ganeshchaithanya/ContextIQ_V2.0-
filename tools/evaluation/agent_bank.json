@@ -1,0 +1,18 @@
+{
+  "overview": ["Assess my financial health today", "Give me an overall financial summary", "How is my business doing financially?", "मेरी वित्तीय स्थिति बताओ", "ನನ್ನ ಆರ್ಥಿಕ ಸ್ಥಿತಿ ಏನು?", "Give me a complete picture of my shop's finances"],
+  "balance": ["What funds are left in my account?", "Tell me my recorded balance", "How much money is available?", "मेरे पास कितने पैसे शेष हैं", "ನನ್ನ ಹಣ ಎಷ್ಟು ಉಳಿದಿದೆ?", "What is my cash position right now?"],
+  "budget": ["Show my spending allocation", "Summarise this month's budget", "What did I spend on groceries?", "मेरा बजट दिखाओ", "ನನ್ನ ಬಜೆಟ್ ತೋರಿಸಿ", "Break down my outgoing expenses by category"],
+  "bills": ["List the bills I still owe", "When is my rent due?", "Which bill should I settle first?", "कौन सा बिल देय है", "ನನ್ನ ಬಿಲ್ ಬಾಕಿ ಎಷ್ಟು?", "List outstanding electricity and supplier obligations"],
+  "focus": ["What should I focus on today?", "Show today's highest priority", "What is the next task for me?", "आज की प्राथमिकता बताओ", "ಇಂದು ನನ್ನ ಆದ್ಯತೆ ಏನು?", "Which action deserves my attention first?"],
+  "afford": ["Can I afford headphones now?", "Is it safe to buy this phone?", "Can I buy a new printer this week?", "क्या मैं यह खरीद सकता हूँ", "ನಾನು ಇದನ್ನು ಖರೀದಿಸಬಹುದೇ?", "Would a new fridge fit within my available cash?"],
+  "payment": ["My card payment failed", "Check whether the payment completed", "Recover the interrupted checkout", "मेरे भुगतान की स्थिति बताओ", "ನನ್ನ ಪಾವತಿ ಸ್ಥಿತಿ ಏನು?", "Did the bank debit actually settle?"],
+  "purchase": ["Check the warranty for my bought cable", "Show my delivered purchases", "I need a replacement for a broken mouse", "मेरे सामान की वारंटी बताओ", "ನನ್ನ ಖರೀದಿ ವಿತರಣ ಸ್ಥಿತಿ ಏನು?", "What protection applies after my order arrived?"],
+  "emi": ["List my remaining EMI installments", "How many installments remain on the laptop?", "Show the instalment repayment schedule", "मेरी किस्त कब है", "ನನ್ನ ಕಂತು ಎಷ್ಟು?", "What monthly repayments are still outstanding?"],
+  "goal": ["Show my savings goal for the laptop", "What is my goal contribution this month?", "Pause my laptop savings plan", "मेरा बचत लक्ष्य बताओ", "ನನ್ನ ಉಳಿತಾಯ ಗುರಿ ತೋರಿಸಿ", "How far am I from funding the new freezer?"],
+  "notices": ["Prepare a notice for my supplier", "Draft a customer reminder", "Which customer should I remind next?", "ग्राहक को संदेश तैयार करो", "ಗ್ರಾಹಕನಿಗೆ ಸಂದೇಶ ತಯಾರಿಸಿ", "Draft a polite follow-up about an unpaid client invoice"],
+  "safety": ["This payee change seems suspicious", "Someone is pushing me to pay urgently", "Is this request a scam?", "यह धोखा लग रहा है", "ಇದು ವಂಚನೆ ಆಗಿರಬಹುದೇ?", "Someone impersonated my wholesaler and changed their account"],
+  "knowledge": ["Do I need a UPI PIN to receive money?", "Explain how to record a partial payment", "How do I record a partial client receipt?", "What should I do about a pending UPI payment?", "Why isn't an unpaid invoice cash I can spend?", "How do I record payment received against an invoice?"],
+  "blocked": ["Pay the supplier now", "Transfer 500 rupees to this account", "Send money to the merchant", "पैसे भेज दो", "ಹಣ ಕಳುಹಿಸಿ", "Please approve this payment automatically"],
+  "greeting": ["Hello", "Hi!", "Hey", "नमस्ते", "ನಮಸ್ಕಾರ", "Good morning, Tara"],
+  "fallback": ["Write a poem about mangoes", "Who won the cricket match?", "Predict tomorrow's weather", "आज मौसम कैसा है", "ನಾಳೆ ಮಳೆ ಬರುತ್ತದೆಯೇ?", "Tell me the best song released this week"]
+}

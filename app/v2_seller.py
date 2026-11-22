@@ -640,4 +640,4 @@ def explain_studio(db, owner, message, topic):
                   if actions else "Your studio has no urgent follow-ups. Create a customer invoice or review the cash forecast.")
         if actions and actions[0]["invoice_id"]:
             destination = f"#/seller/invoices/{actions[0]['invoice_id']}"
-    return {"topic": "studio", "answer": answer, "destination": destination, "evidence": evidence}
+    return {"topic": topic, "answer": answer, "destination": destination, "evidence": evidence}
