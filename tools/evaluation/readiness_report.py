@@ -39,6 +39,10 @@ if (O/'live-tara-expanded.json').exists():
   initial=load('live-tara-initial-burst.json')
   body+='<p>Initial unpaced run: '+str(initial['groq_grounded_answers'])+'/'+str(initial['n'])+' responses used validated Groq reasoning. This exposed fallback weaknesses. The repeat uses bounded context, exact-record fallbacks and '+str(expanded.get('pace_seconds',0))+' seconds between questions. Both code and pacing changed, so the difference cannot be attributed to either alone. '+link('live-tara-initial-burst.json','Original failed run retained')+'.</p>'
  body+='<p>'+link('live-tara-expanded.json','Inspect every question and response, including failures')+'</p>'
+ body+='<h3>Manual semantic review: a confirmed failure</h3><p>Question 17 incorrectly claimed records were not sent to Groq except through export. Its citations and output structure passed, proving those checks do not establish factual correctness. That 20-question run predates the final privacy-policy fix. Privacy and purchase-permission questions now use authoritative saved settings and code policy without a model call; generated privacy claims in financial answers are withheld. The full bank has not been rerun after this final targeted change.</p>'
+ if (O/'privacy-policy-live.json').exists():
+  policy=load('privacy-policy-live.json')
+  body+='<p>Targeted final production verification: both record-sharing ON and OFF disclosures passed: '+esc(str(policy['all_passed']))+'. '+link('privacy-policy-live.json','Inspect final policy verification')+'.</p>'
 body+='''<h2>Hackathon rubric assessment</h2>'''+table(['Criterion','My score','Reason'],[
 ['Real-world usefulness','22 / 25','Connected invoicing, receipt tracking, bill coverage and client-delay scenarios solve a clear business problem. No trader outcome evidence yet.'],
 ['Technology actually works','22 / 25','Working database, deterministic finance, scoped retrieval/Groq integration, exact source links, imports and regression evidence. Retrieval misses and arbitrary-language reasoning still need evaluation.'],
