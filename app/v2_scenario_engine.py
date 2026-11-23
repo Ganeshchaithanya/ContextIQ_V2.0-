@@ -2,6 +2,7 @@
 import calendar
 import re
 from datetime import date,timedelta
+from decimal import Decimal,InvalidOperation
 from pydantic import BaseModel,Field
 from sqlalchemy import select
 from .v2_models import Customer,SellerBill
@@ -99,6 +100,21 @@ def cash_scenario(db,owner,message):
     conditional=bool(re.search(r'\bif\b|without|until|delay|late',lower))
     if conditional and len(matched)!=1:return clarify('Which client should I delay, and until what date? Use one unambiguous customer name or select an exact record in the scenario editor.')
     plan=ScenarioIn(horizon_days=horizon,customer_id=matched[0].id if len(matched)==1 else None)
+    # Never silently ignore explicit hypothetical cash or an extra cost in a compound question.
+    for field,marker,patterns in [
+        ('extra_expense_minor',r'extra|unexpected|additional|one.off',[
+            r'(?:extra|unexpected|additional|one.off)\s+(?:expense|cost|bill)(?:\s+of)?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)',
+            r'(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)\s+(?:extra|unexpected|additional)\s+(?:expense|cost|bill)']),
+        ('cash_override_minor',r'hypothetical cash|opening cash|starting cash|only\s*(?:₹|rs\.?|inr)',[
+            r'(?:hypothetical|opening|starting)\s+cash(?:\s+of)?\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)',
+            r'only\s*(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)\s+(?:in\s+)?cash'])]:
+        if not re.search(marker,lower):continue
+        values=[m.group(1) for pattern in patterns for m in re.finditer(pattern,lower)]
+        if len(values)!=1:return clarify('Please specify one hypothetical cash amount and one extra expense, or use the scenario editor to avoid guessing which amount belongs to which condition.')
+        try:value=Decimal(values[0].replace(',',''))
+        except InvalidOperation:return clarify('Use a valid rupee amount with at most two decimal places.')
+        if value<0 or value>10000000 or value*100!=(value*100).to_integral_value():return clarify('Use a non-negative amount with at most two decimal places and at most ₹1,00,00,000.')
+        setattr(plan,field,int(value*100))
     if conditional:
         delay=re.search(r'(\d+)\s*days?\s*(?:late|later)|(?:delay|late).*?(\d+)\s*days?',lower)
         iso=re.search(r'\b(20\d{2}-\d{2}-\d{2})\b',lower)
@@ -112,7 +128,9 @@ def cash_scenario(db,owner,message):
             except ValueError:return clarify('That date is invalid. Please use YYYY-MM-DD.')
         elif month:
             year=re.search(r'\b(20\d{2})\b',lower);year=int(year[1]) if year else start.year+(month[0]<start.month)
-            plan.defer_until=date(year,month[0],1)
+            day=re.search(r'\b(\d{1,2})\s+'+month[1].lower()+r'\b',lower) or re.search(r'\b'+month[1].lower()+r'\s+(\d{1,2})\b',lower)
+            try:plan.defer_until=date(year,month[0],int(day[1]) if day else 1)
+            except ValueError:return clarify('That calendar date is invalid. Please confirm the day, month and year.')
         elif 'without' not in lower:return clarify('How late will this client pay? Give a future date or a delay in days.')
         if plan.defer_until and plan.defer_until<start:return clarify('That delayed receipt date is in the past. Please confirm the future date.')
         plan.exclude_client_receipts='without' in lower or bool(plan.defer_until and plan.defer_until>=start+timedelta(days=horizon))

@@ -55,6 +55,13 @@ def test_model_cannot_overturn_calculated_scenario(client,monkeypatch):
     d=client.post('/api/v2/ask',json={'message':"Can I afford rent and laptop EMI this week if Bengaluru Fintech Labs doesn't pay until January?"}).json()
     assert d['answer'].startswith('Yes.') and d['analysis']['retrieval']['status']=='contradicts_calculated_verdict_fallback'
 
+
+def test_model_cannot_override_missing_client_clarification(client,monkeypatch):
+    optin(client);monkeypatch.setattr(llm,'available',lambda:True)
+    monkeypatch.setattr(llm,'complete',lambda *a,**k:pytest.fail('Missing client must be clarified before model reasoning'))
+    d=client.post('/api/v2/ask',json={'message':'Can I cover rent this week if Unknown Acme does not pay until January?'}).json()
+    assert d['answer'].startswith('Which client')
+
 def test_model_outage_retains_record_answer(client,monkeypatch):
     optin(client);monkeypatch.setattr(llm,'available',lambda:True);monkeypatch.setattr(llm,'complete',lambda *a,**k:None)
     d=client.post('/api/v2/ask',json={'message':'Show my cash balance'}).json()
@@ -106,6 +113,19 @@ def test_scenario_daily_reconciliation_and_no_mutation(client,days):
 def test_scenario_foreign_customer_is_denied(client):
     foreign=client.get('/api/v2/seller/customers').json()[0]['id'];start(client)
     assert client.post('/api/v2/seller/scenario',json={'customer_id':foreign}).status_code==404
+
+
+def test_compound_question_preserves_extra_expense_and_hypothetical_cash(client):
+    result=client.post('/api/v2/ask',json={'message':'Can I cover bills over the next 7 days with opening cash ₹500 and an extra expense of ₹1000?'}).json()
+    s=result['analysis']['scenario'];assert s['opening_minor']==50000 and s['inputs']['extra_expense_minor']==100000
+    assert result['analysis']['decision']['verdict']=='no'
+
+
+def test_named_month_day_and_missing_extra_amount_not_ignored(client):
+    result=client.post('/api/v2/ask',json={'message':'Can I afford rent next 14 days if Bengaluru Fintech Labs pays until January 15?'}).json()
+    assert result['analysis']['scenario']['deferred_until'].endswith('-01-15')
+    missing=client.post('/api/v2/ask',json={'message':'Can I cover bills next 7 days with an unexpected expense?'}).json()
+    assert missing['answer'].startswith('Please specify')
 
 @pytest.mark.parametrize('question,days',[
  ('Can I cover bills over the next 14 days if Bengaluru Fintech Labs pays 30 days late?',14),

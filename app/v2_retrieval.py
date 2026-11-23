@@ -105,6 +105,8 @@ def grounded_answer(db,state):
     prefs=db.get(Personalization,state['user_id']).data
     if not prefs.get('allow_model_records',False) or not prefs.get('allow_model_questions',True):return {}
     if state['topic'] in ('blocked','greeting'):return {}
+    if state['topic']=='cash_scenario' and not (state.get('analysis') or {}).get('scenario',{}).get('inputs'):
+        return {}  # Do not let a language model replace a required client/date clarification.
     docs,analysis,count=retrieve(db,state['user_id'],state['message'])
     db.commit()  # Release the SQLite write transaction before external inference.
     info={'mode':'local_retrieval','indexed_chunks':count,'retrieved_chunks':len(docs),'sources':[
@@ -127,6 +129,10 @@ def grounded_answer(db,state):
     context={'question':state['message'],'evidence':docs,'calculations':base.get('calculations',[]),
              'scenario':base.get('scenario'),'current_answer_from_code':state.get('answer'),
              'limits':base.get('limitations',[]),'snapshot_at':now().isoformat()}
+    from .v2_seller import rupees
+    metrics=base.get('metrics',{})
+    context['calculated_money_facts']={key:rupees(value) for key,value in metrics.items() if key.endswith('_minor') and isinstance(value,int)}
+    context['calculated_money_facts']['total_planned']=rupees(sum(metrics.get(key,0) for key in ('committed_minor','reserved_minor','savings_minor')))
     response=llm.complete(SYSTEM,json.dumps(context,ensure_ascii=False),large=True,want_json=True,max_tokens=1800,timeout=12)
     try:reply=GroundedReply.model_validate(response)
     except (ValidationError,TypeError,ValueError):
@@ -147,6 +153,9 @@ def grounded_answer(db,state):
     info['status']='grounded_model_answer';info['provider']=llm.PROVIDER
     base['decision']={'verdict':reply.verdict,'rationale':reply.rationale,'assumptions':reply.assumptions,
                       'guardrails':'Citations and quoted currency amounts checked; semantic correctness still needs evaluation.'}
+    citations=list(state.get('sources',[]))+[{'title':sources[s]['title'],'url':sources[s]['destination'],
+        'reviewed_on':sources[s]['snapshot_at'][:10],'needs_review':False,'retrieved':True} for s in dict.fromkeys(reply.source_ids)]
+    distinct={}
+    for citation in citations:distinct.setdefault(citation['url'],citation)
     return {'answer':reply.answer,'routing':'retrieval_llm','analysis':base,
-            'sources':list(state.get('sources',[]))+[{'title':sources[s]['title'],'url':sources[s]['destination'],
-                'reviewed_on':sources[s]['snapshot_at'][:10],'needs_review':False,'retrieved':True} for s in dict.fromkeys(reply.source_ids)]}
+            'sources':list(distinct.values())}
