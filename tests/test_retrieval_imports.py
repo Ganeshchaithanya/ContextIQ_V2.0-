@@ -39,6 +39,16 @@ def test_retrieval_model_uses_owned_evidence_and_persists_sources(client,monkeyp
     assert calls[0]['calculations'] and d['sources']
     assert client.get('/api/v2/ask').json()[-1]['analysis']['retrieval']==d['analysis']['retrieval']
 
+
+def test_code_calculations_have_stable_citation_even_for_conceptual_question(client,monkeypatch):
+    optin(client);calls=[];monkeypatch.setattr(llm,'available',lambda:True)
+    def model(system,user,**kwargs):calls.append(json.loads(user));return reply()
+    monkeypatch.setattr(llm,'complete',model)
+    d=client.post('/api/v2/ask',json={'message':'Show my recorded cash balance and explain the difference from available to spend.'}).json()
+    assert d['routing']=='retrieval_llm'
+    assert 'cash:current' in calls[0]['allowed_source_ids']
+    assert 'total_planned' in calls[0]['calculated_money_facts']
+
 @pytest.mark.parametrize('bad,status',[
     ({'source_ids':['invoice:other-owner']},'invalid_citation_fallback'),
     ({'answer':'Your cash is ₹999,999.99 and you can spend it freely.'},'unsupported_amount_fallback'),

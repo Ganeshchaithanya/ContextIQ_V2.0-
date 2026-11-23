@@ -107,7 +107,13 @@ def grounded_answer(db,state):
     if state['topic'] in ('blocked','greeting'):return {}
     if state['topic']=='cash_scenario' and not (state.get('analysis') or {}).get('scenario',{}).get('inputs'):
         return {}  # Do not let a language model replace a required client/date clarification.
-    docs,analysis,count=retrieve(db,state['user_id'],state['message'])
+    docs,analysis,count=retrieve(db,state['user_id'],state['message'],limit=7)
+    # Calculations need a stable citable record, even when lexical search ranks a
+    # conceptual guide above the current numeric snapshot.
+    calculation_id='rag:'+hashlib.sha256((state['user_id']+'|cash:current').encode()).hexdigest()
+    calculation=db.get(PlanningRecord,calculation_id)
+    if calculation:
+        docs=[{**calculation.data,'retrieval_score':0.0,'selection_reason':'mandatory code calculation'}]+[d for d in docs if d['source_id']!='cash:current']
     db.commit()  # Release the SQLite write transaction before external inference.
     info={'mode':'local_retrieval','indexed_chunks':count,'retrieved_chunks':len(docs),'sources':[
         {k:d[k] for k in ('source_id','title','destination','retrieval_score','snapshot_at')} for d in docs],
@@ -133,7 +139,8 @@ def grounded_answer(db,state):
     metrics=base.get('metrics',{})
     context['calculated_money_facts']={key:rupees(value) for key,value in metrics.items() if key.endswith('_minor') and isinstance(value,int)}
     context['calculated_money_facts']['total_planned']=rupees(sum(metrics.get(key,0) for key in ('committed_minor','reserved_minor','savings_minor')))
-    response=llm.complete(SYSTEM,json.dumps(context,ensure_ascii=False),large=True,want_json=True,max_tokens=1800,timeout=12)
+    context['allowed_source_ids']=[d['source_id'] for d in docs]
+    response=llm.complete(SYSTEM+' All calculations and calculated_money_facts are attributable to the evidence ID cash:current. source_ids must contain exact strings from allowed_source_ids, never section names or titles.',json.dumps(context,ensure_ascii=False),large=True,want_json=True,max_tokens=1800,timeout=12)
     try:reply=GroundedReply.model_validate(response)
     except (ValidationError,TypeError,ValueError):
         info['status']='invalid_model_output_fallback';return {'analysis':base}
