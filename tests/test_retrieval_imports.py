@@ -250,3 +250,72 @@ def test_provider_pending_and_replay_do_not_settle_again():
     p['status']='captured';assert confirm_capture(None,None,invoice,order,p)['replayed']
     p['id']='pay_Different'
     with pytest.raises(HTTPException):confirm_capture(None,None,invoice,order,p)
+
+
+def test_signed_provider_callback_requires_capture_and_posts_only_once(client,monkeypatch):
+    import hashlib,hmac
+    from app import v2_checkout
+    monkeypatch.setenv('RAZORPAY_KEY_ID','rzp_test_fixture');monkeypatch.setenv('RAZORPAY_KEY_SECRET','fixture-only-secret')
+    calls=[];state={'status':'authorized'}
+    def provider(method,path,**kwargs):
+        calls.append((method,path))
+        if method=='POST':return {'id':'order_Fixture','amount':10000,'currency':'INR'}
+        return {'id':'pay_Fixture','order_id':'order_Fixture','amount':10000,'currency':'INR','method':'upi','status':state['status']}
+    monkeypatch.setattr(v2_checkout,'request_provider',provider)
+    before=client.get('/api/v2/dashboard').json()['finance']['balance_minor']
+    invoice=client.post('/api/v2/invoices',json={'kind':'payment','amount_minor':10000,'purpose':'business'}).json()
+    path='/api/v2/invoices/'+invoice['id']
+    body={'method':'upi','authorized':False,'fingerprint':invoice['fingerprint'],'version':invoice['version']}
+    assert client.post(path+'/provider-order',json=body).status_code==409 and not calls
+    body['authorized']=True;assert client.post(path+'/provider-order',json=body).status_code==200
+    assert client.post(path+'/provider-confirm',json={'payment_id':'pay_Fixture','signature':'0'*64}).status_code==403
+    assert len(calls)==1  # Invalid signature never reaches the provider API.
+    proof={'payment_id':'pay_Fixture','signature':hmac.new(b'fixture-only-secret',b'order_Fixture|pay_Fixture',hashlib.sha256).hexdigest()}
+    assert client.post(path+'/provider-confirm',json=proof).json()['pending']
+    assert client.get('/api/v2/dashboard').json()['finance']['balance_minor']==before
+    state['status']='captured'
+    response=client.post(path+'/provider-confirm',json=proof);assert response.status_code==200 and response.json()['ok']
+    assert client.get('/api/v2/dashboard').json()['finance']['balance_minor']==before-10000
+    assert client.post(path+'/provider-confirm',json=proof).json()['replayed']
+    assert client.get('/api/v2/dashboard').json()['finance']['balance_minor']==before-10000
+    receipt=client.get(path).json()['checkout']['verification']
+    assert receipt['mode']=='razorpay_test' and receipt['provider_reference']=='pay_Fixture' and not receipt['live_money_enabled']
+    start(client);assert client.post(path+'/provider-confirm',json=proof).status_code==404
+
+
+@pytest.mark.parametrize('question,expected',[
+ ('How much is my Laptop EMI bill?','₹8,500.00'),
+ ('What is outstanding on invoice INV-0004?','outstanding ₹1,500.00'),
+ ('What is the outstanding amount on INV-9999?','No invoice INV-9999'),
+ ('Are my records sent to Groq?','separate privacy choices'),
+])
+def test_named_record_and_platform_answers_survive_model_failure(client,monkeypatch,question,expected):
+    optin(client);monkeypatch.setattr(llm,'available',lambda:True);monkeypatch.setattr(llm,'complete',lambda *a,**k:None)
+    result=client.post('/api/v2/ask',json={'message':question}).json()
+    assert expected in result['answer']
+
+
+def test_price_fallback_and_compact_scenario_context(client,monkeypatch):
+    optin(client);client.post('/api/v2/watch/demo-price-drop').raise_for_status()
+    monkeypatch.setattr(llm,'available',lambda:True);calls=[]
+    def model(system,user,**kwargs):calls.append(json.loads(user));return None
+    monkeypatch.setattr(llm,'complete',model)
+    result=client.post('/api/v2/ask',json={'message':'What happened to the printer price?'}).json()
+    assert '₹2,100.00' in result['answer'] and 'simulated True' in result['answer']
+    client.post('/api/v2/ask',json={'message':'Can I cover bills over the next 90 days without Bengaluru Fintech Labs?'}).raise_for_status()
+    context=calls[-1];assert 'days' not in context['scenario'] and context['calculations']
+    assert all(len(d['text'])<=1400 for d in context['evidence'])
+
+
+@pytest.mark.parametrize('status,expected',[(429,'provider_rate_limited'),(503,'provider_http_error')])
+def test_provider_failures_are_classified_without_exposing_credentials(monkeypatch,status,expected):
+    import httpx
+    from contextlib import nullcontext
+    from app import reliability
+    monkeypatch.setattr(llm,'available',lambda:True);monkeypatch.setattr(llm,'PROVIDER','groq')
+    monkeypatch.setattr(reliability,'llm_limiter',nullcontext());monkeypatch.setattr(reliability,'llm_circuit',nullcontext())
+    def fail(*a,**k):
+        response=httpx.Response(status,request=httpx.Request('POST','https://api.groq.com/openai/v1/chat/completions'))
+        response.raise_for_status()
+    monkeypatch.setattr(llm.httpx,'post',fail)
+    assert llm.complete('fixture','fixture') is None and llm.last_result()=={'status':expected}

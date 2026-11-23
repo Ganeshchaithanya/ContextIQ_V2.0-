@@ -197,6 +197,10 @@ def route(state):
     match = next((topic for topic, pattern in PATTERNS if re.search(pattern, message, re.I)), None)
     if match:
         return {"topic": match, "routing": "rules"}
+    if state.get('allow_model_records',False):
+        # The grounded reasoning node already understands the full question.
+        # Avoid spending a second provider request just to label an unknown intent.
+        return {"topic":"fallback","routing":"retrieval_pending"}
     classified = classify_with_model(state["message"]) if state.get("allow_model_questions", True) else None
     return {"topic": classified or "fallback", "routing": "llm" if classified else "rules"}
 

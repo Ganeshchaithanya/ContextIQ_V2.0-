@@ -3,7 +3,7 @@
 Money precision/recall/F1 measure reference-amount set overlap, NOT semantic accuracy.
 Run against the actual deployed build after release, keep failures in the report.
 """
-import hashlib,json,re,time
+import argparse,hashlib,json,re,time,statistics
 from decimal import Decimal
 from pathlib import Path
 import httpx
@@ -36,7 +36,7 @@ BANK=[
 def money(text):
     return {int(Decimal(x.replace(',',''))*100) for x in re.findall(r'₹\s*([0-9][0-9,]*(?:\.\d{1,2})?)',text)}
 
-def run():
+def run(pace_seconds=0):
     OUT.mkdir(parents=True,exist_ok=True);rows=[];invariants=[]
     for offset in range(0,len(BANK),4):
         with httpx.Client(base_url=BASE,timeout=60) as c:
@@ -48,12 +48,14 @@ def run():
                 c.post('/api/v2/watch/demo-price-drop').raise_for_status()
             before=c.get('/api/v2/dashboard').json()['finance']['balance_minor']
             for category,question,reference in BANK[offset:offset+4]:
+                if rows and pace_seconds:time.sleep(pace_seconds)
                 t=time.perf_counter();r=c.post('/api/v2/ask',json={'message':question});r.raise_for_status();d=r.json()
                 analysis=d.get('analysis') or {};retrieval=analysis.get('retrieval') or {}
                 expected=set(reference);predicted=money(d.get('answer',''))
                 tp=len(expected&predicted);fp=len(predicted-expected);fn=len(expected-predicted)
                 row={'category':category,'question':question,'answer':d.get('answer'),'routing':d.get('routing'),
                      'retrieval_status':retrieval.get('status'),'latency_ms':round((time.perf_counter()-t)*1000),
+                     'context_characters':retrieval.get('context_characters'),
                      'decision':analysis.get('decision'),'sources':d.get('sources'),
                      'reference_amounts_minor':reference,'answer_amounts_minor':sorted(predicted),
                      'money_overlap':{'tp':tp,'fp':fp,'fn':fn} if reference else None}
@@ -73,10 +75,13 @@ def run():
     report={'bank_sha256':hashlib.sha256(json.dumps(BANK,ensure_ascii=False).encode()).hexdigest(),
         'n':len(rows),'groq_grounded_answers':sum(r['routing']=='retrieval_llm' for r in rows),
         'money_reference_overlap':{'n':len(amounts),'precision':precision,'recall':recall,'f1':2*precision*recall/(precision+recall) if precision+recall else 0,'tp':tp,'fp':fp,'fn':fn},
-        'latency_ms':{'median':latencies[len(latencies)//2],'p95':latencies[max(0,int(.95*len(latencies))-1)]},
+        'pace_seconds':pace_seconds,
+        'latency_ms':{'median':statistics.median(latencies),'p95':latencies[max(0,int(.95*len(latencies))-1)]},
         'all_workspaces_cash_unchanged':all(invariants),'rows':rows,
         'limits':'Fixed developer-authored questions in fresh fictional workspaces. No independent human semantic labels. Money set overlap can penalize correct extra context and does not validate attribution, dates, reasoning or citation entailment. Scenario presence is not independent arithmetic accuracy. No universal accuracy or real-user validation claim.'}
     (OUT/'live-tara-expanded.json').write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding='utf-8')
     print(json.dumps({k:v for k,v in report.items() if k!='rows'},indent=2),flush=True)
 
-if __name__=='__main__':run()
+if __name__=='__main__':
+    parser=argparse.ArgumentParser();parser.add_argument('--pace-seconds',type=float,default=0)
+    args=parser.parse_args();run(max(0,min(30,args.pace_seconds)))

@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import time
+from contextvars import ContextVar
 
 import httpx
 
@@ -23,6 +24,15 @@ from ..config import settings
 
 log = logging.getLogger("contextiq.llm")
 METER = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "latency_ms": 0.0, "errors": 0}
+LAST_RESULT = ContextVar("llm_call_result", default={})
+
+
+def reset_result():
+    LAST_RESULT.set({})
+
+
+def last_result():
+    return dict(LAST_RESULT.get())
 
 PROVIDER = os.getenv("LLM_PROVIDER", "groq" if os.getenv("GROQ_API_KEY") else "anthropic").lower()
 GROQ_KEY = os.getenv("GROQ_API_KEY", "")
@@ -42,7 +52,9 @@ def provider_name() -> str:
 
 def complete(system: str, user: str, *, large: bool = False, max_tokens: int = 400,
              want_json: bool = False, timeout: float = 30) -> str | dict | None:
+    reset_result()
     if not available():
+        LAST_RESULT.set({"status": "not_configured"})
         return None
     from ..reliability import llm_circuit, llm_limiter
     t0 = time.time()
@@ -83,16 +95,31 @@ def complete(system: str, user: str, *, large: bool = False, max_tokens: int = 4
                 METER["input_tokens"] += data.get("usage", {}).get("input_tokens", 0)
                 METER["output_tokens"] += data.get("usage", {}).get("output_tokens", 0)
     except Exception as exc:  # noqa: BLE001 — optional layer; fall back to deterministic code
+        from ..reliability import CircuitOpen, CapacityExceeded
+        status = "provider_error"
+        if isinstance(exc, httpx.HTTPStatusError):
+            status = "provider_rate_limited" if exc.response.status_code == 429 else "provider_http_error"
+        elif isinstance(exc, httpx.TimeoutException):
+            status = "provider_timeout"
+        elif isinstance(exc, CircuitOpen):
+            status = "provider_circuit_open"
+        elif isinstance(exc, CapacityExceeded):
+            status = "provider_capacity"
+        elif isinstance(exc, ValueError):
+            status = "provider_incomplete_output"
+        LAST_RESULT.set({"status": status})  # Never expose a response body, URL or credential.
         METER["errors"] += 1
         log.warning("LLM unavailable; deterministic fallback (%s)", type(exc).__name__)
         return None
     METER["calls"] += 1
+    LAST_RESULT.set({"status": "completed"})
     METER["latency_ms"] += (time.time() - t0) * 1000
     if want_json:
         try:
             start, end = text.index("{"), text.rindex("}") + 1
             return json.loads(text[start:end])
         except ValueError:
+            LAST_RESULT.set({"status": "provider_invalid_json"})
             return None
     return text
 
