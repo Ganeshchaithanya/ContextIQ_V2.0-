@@ -35,6 +35,9 @@ if (O/'live-tara-expanded.json').exists():
   ['Reference-money set precision / recall / F1',f"{m['precision']:.1%} / {m['recall']:.1%} / {m['f1']:.1%}",'Exact expected rupee-amount set overlap on '+str(m['n'])+' money questions; not semantic correctness or model accuracy. Correct extra context can count as a mismatch.'],
   ['Latency median / p95',f"{expanded['latency_ms']['median']} / {expanded['latency_ms']['p95']} ms",'End-to-end on this small hosted sample, not a throughput or load guarantee'],
   ['Recorded cash unchanged',expanded['all_workspaces_cash_unchanged'],'No payment was executed during evaluation']])
+ if (O/'live-tara-initial-burst.json').exists():
+  initial=load('live-tara-initial-burst.json')
+  body+='<p>Initial unpaced run: '+str(initial['groq_grounded_answers'])+'/'+str(initial['n'])+' responses used validated Groq reasoning. This exposed fallback weaknesses. The repeat uses bounded context, exact-record fallbacks and '+str(expanded.get('pace_seconds',0))+' seconds between questions. Both code and pacing changed, so the difference cannot be attributed to either alone. '+link('live-tara-initial-burst.json','Original failed run retained')+'.</p>'
  body+='<p>'+link('live-tara-expanded.json','Inspect every question and response, including failures')+'</p>'
 body+='''<h2>Hackathon rubric assessment</h2>'''+table(['Criterion','My score','Reason'],[
 ['Real-world usefulness','22 / 25','Connected invoicing, receipt tracking, bill coverage and client-delay scenarios solve a clear business problem. No trader outcome evidence yet.'],
