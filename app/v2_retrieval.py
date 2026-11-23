@@ -66,7 +66,24 @@ def refresh(db, owner):
     for item in db.scalars(select(PurchaseItem).where(PurchaseItem.buyer_id==owner).limit(100)):
         add('purchase:'+item.id, item.name, f'Purchase {item.name}; quantity {item.quantity}; delivery state {item.state}; delivered {item.delivered_at}; request {item.request}.', '#/purchases/item/'+item.id)
     for watch in db.scalars(select(PriceWatch).where(PriceWatch.user_id==owner).limit(50)):
-        add('watch:'+watch.id, watch.title, f'Tracked product {watch.title}; current price {watch.current_minor} minor units {watch.currency}; low since tracking {watch.low_minor}.', '#/purchases/before')
+        if not watch.enabled:
+            continue
+        from .v2_watch import view as watch_view
+        from .v2_seller import rupees
+        effect = watch_view(db, watch)['price_effect']
+        def quoted(amount):
+            return rupees(amount) if watch.currency == 'INR' else f'{watch.currency} {amount / 100:.2f}'
+        monthly = effect.get('monthly_request')
+        pace = f"Requested monthly saving changed from {quoted(monthly['before_minor'])} to {quoted(monthly['after_minor'])}; actual allocation is capped by funds and overrides. " if monthly else ''
+        add('watch:'+watch.id, watch.title,
+            f"Tracked product {watch.title}; current price {quoted(watch.current_minor)} {watch.currency}; "
+            f"initial observed price {quoted(effect['baseline_minor'])}; lowest since tracking {quoted(watch.low_minor)}; "
+            f"price reduction {quoted(effect['drop_minor'])} ({effect['drop_percent']} percent); "
+            f"quantity {watch.quantity}; total purchase target {quoted(effect['target_minor'])}; "
+            f"total target reduction {quoted(effect['quantity_saving_minor'])}; "
+            f"linked savings plan updated {effect['plan_updated']}; simulated {effect['simulated']}. " + pace +
+            "Savings targets are planning only, not money transferred. No purchase is authorized. "
+            "Lowest observed since tracking began, not an all-time market low.", '#/watch/'+watch.id)
     previous = {r.id:r for r in db.scalars(select(PlanningRecord).where(PlanningRecord.user_id==owner,PlanningRecord.kind==KIND))}
     live=set()
     for chunk in chunks:

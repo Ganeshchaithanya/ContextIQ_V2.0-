@@ -171,3 +171,82 @@ def test_import_invoice_stays_draft_and_export_owned(client):
     rows=client.get('/api/v2/seller/invoices').json();assert any(r['total_minor']==50000 and r['status']=='draft' for r in rows)
     own=client.get('/api/v2/workspace/export').json();assert any(c['name']=='Bengaluru Fintech Labs' for c in own['customers'])
     start(client,'salaried');assert client.get('/api/v2/workspace/export').json()['customers']==[]
+
+
+def test_price_drop_updates_plan_notice_and_retrieval_without_moving_money(client):
+    before=client.get('/api/v2/dashboard').json()['finance']['balance_minor']
+    r=client.post('/api/v2/watch/demo-price-drop');assert r.status_code==200
+    w=r.json();e=w['price_effect']
+    assert (e['baseline_minor'],w['current_minor'],e['drop_minor'],e['drop_percent'])==(1200000,990000,210000,17.5)
+    assert e['simulated'] and e['plan_updated'] and len(w['history'])==2
+    assert e['monthly_request']=={'before_minor':100000,'after_minor':82500}
+    from app.db import SessionLocal
+    from app.v2_models import PlanningRecord
+    with SessionLocal() as db:
+        plan=db.get(PlanningRecord,w['purchase_plan_id'])
+        assert plan.data['target_minor']==990000 and plan.data['date_mode']=='fixed'
+    d=client.get('/api/v2/dashboard').json()
+    assert d['finance']['balance_minor']==before
+    assert any(o['kind']=='price_low' and o['destination']=='#/watch/'+w['id'] for o in d['observations'])
+    docs=client.post('/api/v2/retrieval/search',json={'message':'What changed in my demo shop label printer price and savings target?'}).json()['sources']
+    assert any(x['source_id']=='watch:'+w['id'] for x in docs)
+    again=client.post('/api/v2/watch/demo-price-drop').json()
+    assert again['id']==w['id'] and len(again['history'])==2
+    assert client.post('/api/v2/watch/'+w['id']+'/refresh').json()['error']==''
+    start(client);assert client.post('/api/v2/watch/'+w['id']+'/refresh').status_code==404
+
+
+def test_real_price_changes_quantity_and_increase_do_not_invent_savings(client):
+    from app.db import SessionLocal
+    from app.v2_watch import save_watch,apply_quote,view,ensure_purchase_plan,PurchasePlanIn
+    with SessionLocal() as db:
+        from app.v2_models import DemoSession
+        from sqlalchemy import select
+        owner=db.scalar(select(DemoSession).order_by(DemoSession.expires_at.desc())).buyer_id
+        quote={'title':'Real public scale','key':'scale','minor':10000,'currency':'INR','merchant':'Public merchant'}
+        w=save_watch(db,owner,'https://shop.example/scale',quote,quantity=3)
+        plan=ensure_purchase_plan(db,w,'business',PurchasePlanIn());db.flush()
+        apply_quote(db,w,dict(quote,minor=8000));db.flush();effect=view(db,w)['price_effect']
+        assert effect['quantity_saving_minor']==6000 and plan.data['target_minor']==24000 and not effect['simulated']
+        apply_quote(db,w,dict(quote,minor=12000));db.flush();effect=view(db,w)['price_effect']
+        assert effect['drop_minor']==-2000 and w.low_minor==8000 and plan.data['target_minor']==36000
+        apply_quote(db,w,dict(quote,key='different',minor=5000))
+        assert w.current_minor==12000 and w.error
+
+
+def test_old_price_low_stops_being_actionable_when_price_rises(client):
+    from app.db import SessionLocal
+    from app.v2_models import PriceWatch
+    from app.v2_watch import apply_quote
+    w=client.post('/api/v2/watch/demo-price-drop').json()
+    assert any(o['kind']=='price_low' for o in client.get('/api/v2/dashboard').json()['observations'])
+    with SessionLocal() as db:
+        apply_quote(db,db.get(PriceWatch,w['id']),{'key':'demo-printer','currency':'INR','minor':1300000});db.commit()
+    assert not any(o['kind']=='price_low' for o in client.get('/api/v2/dashboard').json()['observations'])
+
+
+@pytest.mark.parametrize('amount,currency,method,order_id',[
+    (1,'INR','upi','order_Match'),(10000,'USD','upi','order_Match'),
+    (10000,'INR','card','order_Match'),(10000,'INR','upi','order_Foreign')])
+def test_provider_capture_rejects_mismatched_settlement(amount,currency,method,order_id):
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from app.v2_checkout import confirm_capture
+    invoice=SimpleNamespace(total_minor=10000,currency='INR',status='open')
+    order=SimpleNamespace(order_id='order_Match',method='upi')
+    with pytest.raises(HTTPException) as e:
+        confirm_capture(None,None,invoice,order,{'status':'captured','id':'pay_Match','order_id':order_id,'amount':amount,'currency':currency,'method':method})
+    assert e.value.status_code==409
+
+
+def test_provider_pending_and_replay_do_not_settle_again():
+    from types import SimpleNamespace
+    from fastapi import HTTPException
+    from app.v2_checkout import confirm_capture
+    invoice=SimpleNamespace(total_minor=10000,currency='INR',status='paid',case_id='existing')
+    order=SimpleNamespace(order_id='order_Match',method='upi',payment_id='pay_Match')
+    p={'status':'authorized','id':'pay_Match','order_id':'order_Match','amount':10000,'currency':'INR','method':'upi'}
+    assert confirm_capture(None,None,invoice,order,p)=={'ok':False,'pending':True}
+    p['status']='captured';assert confirm_capture(None,None,invoice,order,p)['replayed']
+    p['id']='pay_Different'
+    with pytest.raises(HTTPException):confirm_capture(None,None,invoice,order,p)

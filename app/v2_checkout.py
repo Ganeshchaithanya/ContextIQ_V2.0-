@@ -64,6 +64,10 @@ def recorded_demo_method(db, case_id):
 def checkout_info(db, invoice_id, case_id):
     existing = db.get(ProviderCheckout, invoice_id)
     return {"methods": METHODS, "gateway_available": credentials() is not None,
+            "verification": {"mode": "razorpay_test" if existing else "simulation",
+                "provider_reference": existing.payment_id if existing else None,
+                "checks": ["Exact invoice approval", "Signed callback", "Server-side capture, order, amount, currency and method match"] if existing else ["Exact invoice approval", "Simulated receipt; no bank settlement verified"],
+                "live_money_enabled": False},
             "existing_method": existing.method if existing else None,
             "simulated_method": None if existing else recorded_demo_method(db, case_id),
             "simulated_instrument": None if existing else recorded_demo_instrument(db, case_id),
@@ -114,6 +118,8 @@ def confirm_capture(db, current, invoice, order, payment):
     if not re.fullmatch(r"pay_[A-Za-z0-9]+", payment.get("id", "")):
         fail(409, "Provider did not confirm a valid payment reference")
     if invoice.status == "paid":
+        if order.payment_id != payment["id"]:
+            fail(409, "This invoice was settled with a different payment reference")
         return {"ok": True, "status": "paid", "case_id": invoice.case_id, "replayed": True}
     items = [{"name": item["name"], "quantity": item["quantity"], "unit_price": item["unit_minor"] / 100} for item in invoice.items]
     case = briefcase.create_case(db, owner_id=current.buyer_id, counterparty_id=current.seller_id,

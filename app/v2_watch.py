@@ -19,6 +19,7 @@ from .v2_models import DemoSession, InvoiceSnapshot, Observation, Personalizatio
 STORE_URL = settings.store_url
 CHECK_AFTER = timedelta(hours=4)
 WATCH_LIMIT = 25
+DEMO_PRICE_URL = "https://demo.contextiq.invalid/product/price-drop"
 
 
 class ProductURL(BaseModel):
@@ -67,6 +68,8 @@ def verified_cart(db, body, intent=None):
 
 
 def read_market(url):
+    if url == DEMO_PRICE_URL:
+        raise PriceUnavailable("Simulated price scenario. Use the labelled scenario control; this is not a live merchant quote.")
     prefix = STORE_URL + "/product/"
     if url.startswith(prefix) and url.removeprefix(prefix).isalnum():
         if settings.hosted_demo:
@@ -86,13 +89,47 @@ def read_market(url):
 
 
 def view(db, row):
-    samples = db.scalars(select(PriceSample).where(PriceSample.watch_id == row.id).order_by(PriceSample.checked_at.desc()).limit(12))
+    samples = list(db.scalars(select(PriceSample).where(PriceSample.watch_id == row.id).order_by(PriceSample.checked_at.desc()).limit(12)))
+    first = db.scalar(select(PriceSample).where(PriceSample.watch_id == row.id).order_by(PriceSample.checked_at).limit(1))
     plan = linked_purchase_plan(db, row)
+    baseline = first.amount_minor if first else row.current_minor
+    drop = baseline - row.current_minor
+    monthly = None
+    if plan and plan.data.get("date_mode") == "fixed":
+        from .finance import goal_contribution
+        today = date.fromisoformat(daily_date())
+        monthly = {"before_minor": goal_contribution(plan.data | {"price_minor": baseline}, today),
+                   "after_minor": goal_contribution(plan.data, today)}
     return {"id": row.id, "title": row.title, "merchant": row.merchant, "source_url": row.source_url, "quantity": row.quantity,
             "currency": row.currency, "current_minor": row.current_minor, "low_minor": row.low_minor,
             "checked_at": aware(row.checked_at).isoformat(), "error": row.error,
             "purchase_plan_id": plan.id if plan else None,
+            "price_effect": {"baseline_minor": baseline, "drop_minor": drop,
+                "drop_percent": round(100 * drop / baseline, 2) if baseline else 0,
+                "quantity_saving_minor": drop * row.quantity,
+                "target_minor": row.current_minor * row.quantity,
+                "plan_updated": bool(plan and plan.data.get("status") != "purchased"),
+                "monthly_request": monthly,
+                "simulated": row.source_url == DEMO_PRICE_URL,
+                "scope": "Lowest observed since tracking began; not an all-time market low."},
             "history": [{"amount_minor": sample.amount_minor, "at": aware(sample.checked_at).isoformat()} for sample in samples]}
+
+
+@router.post("/watch/demo-price-drop")
+def demonstrate_price_drop(current=Depends(session), db=Depends(db_dep)):
+    """Owner-only repeatable fictional scenario. Never changes catalog prices or cash."""
+    with WRITE_LOCK:
+        watch = db.scalar(select(PriceWatch).where(PriceWatch.user_id == current.buyer_id,
+            PriceWatch.source_url == DEMO_PRICE_URL, PriceWatch.enabled))
+        if not watch:
+            watch = save_watch(db, current.buyer_id, DEMO_PRICE_URL,
+                {"title": "Demo · shop label printer", "key": "demo-printer", "minor": 1200000,
+                 "currency": "INR", "merchant": "Simulated merchant"})
+            ensure_purchase_plan(db, watch, "business", PurchasePlanIn(target_date=date.fromisoformat(daily_date()) + timedelta(days=365)))
+            db.flush()
+        apply_quote(db, watch, {"key": "demo-printer", "currency": "INR", "minor": 990000})
+        db.commit()
+        return view(db, watch)
 
 
 def save_watch(db, user_id, source_url, quote, quantity=1):
@@ -157,6 +194,8 @@ def refresh_watch(ident, user_id, minimum_age):
         watch = db.get(PriceWatch, ident)
         if not watch or not watch.enabled or watch.user_id != user_id:
             fail(404, "Tracked item not found")
+        if watch.source_url == DEMO_PRICE_URL:
+            return view(db, watch)
         if aware(watch.checked_at) > now() - minimum_age:
             return view(db, watch)
         source, old_timestamp = watch.source_url, watch.checked_at

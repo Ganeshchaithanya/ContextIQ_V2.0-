@@ -416,7 +416,12 @@ def observations(db, user_id):
                 db.add(row)
             row.data = {"title": item.name, "days": days_left, "purpose": case.purpose}
     watched_ids = select(PriceWatch.id).where(PriceWatch.user_id == user_id, PriceWatch.enabled)
-    active.update(db.scalars(select(Observation.id).where(Observation.kind == "price_low", Observation.source_id.in_(watched_ids))))
+    price_notes = db.execute(select(Observation, PriceWatch).join(PriceWatch, Observation.source_id == PriceWatch.id).where(
+        Observation.user_id == user_id, Observation.kind == "price_low", PriceWatch.id.in_(watched_ids)))
+    for note, watch in price_notes:
+        # A past low stays in price history, but must not remain an actionable current offer.
+        if not watch.error and note.data.get("amount_minor") == watch.current_minor == watch.low_minor:
+            active.add(note.id)
     db.flush()
     records = list(db.scalars(select(Observation).where(Observation.user_id == user_id).order_by(Observation.priority.desc(), Observation.created_at)))
     for row in records:

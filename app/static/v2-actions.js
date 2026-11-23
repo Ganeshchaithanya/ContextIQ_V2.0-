@@ -284,6 +284,11 @@ async function action(name, id) {
     if (!resume) toast(t("Savings paused. Price tracking can continue."));
     return render();
   }
+  if (name === "watch-demo") {
+    const row = await api("/watch/demo-price-drop", {});
+    toast("Simulated price drop applied; savings target updated. No money moved.");
+    return navigate(`watch/${row.id}`);
+  }
   if (name === "watch-refresh") {
     const row = await api(`/watch/${id}/refresh`, {});
     toast(row.error || t("Showing the latest recorded price"));

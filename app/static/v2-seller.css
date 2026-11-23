@@ -138,6 +138,11 @@
 .seller-empty .actions { margin-top: 14px; }
 
 /* Phone width */
+.price-impact { margin: 16px 0; padding: 16px; border-radius: 16px; background: #e6f5cc; color: #233b13; }
+.price-impact p { margin: 8px 0; line-height: 1.5; }
+.price-impact small { display: block; line-height: 1.5; }
+.price-sparkline { display: block; width: 100%; height: 110px; color: #577d26; margin: 12px 0; }
+
 @media (max-width: 720px) {
   .seller-page { gap: 14px; }
   .seller-buckets { grid-template-columns: 1fr; }

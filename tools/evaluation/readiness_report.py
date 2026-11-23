@@ -4,11 +4,13 @@ from pathlib import Path
 R=Path(__file__).resolve().parents[2];O=R/'reports/evaluation-2026-11-23'
 load=lambda name:json.loads((O/name).read_text(encoding='utf-8'))
 retrieval=load('retrieval-evaluation.json');browser=load('browser-checks.json');checks=load('checks.json')
-xml=ET.parse(O/'test_retrieval_imports.xml').getroot();count=sum(int(s.attrib.get('tests',0)) for s in xml.iter('testsuite'))
+xml=ET.parse(O/'test_retrieval_imports.xml').getroot();suites=list(xml.iter('testsuite'));count=sum(int(s.attrib.get('tests',0)) for s in suites)
 for row in checks:
- if row['name']=='test_retrieval_imports':row.update(tests=count,failures=0,errors=0,skipped=0,exit_code=0)
+ if row['name']=='test_retrieval_imports':
+  totals={key:sum(int(s.attrib.get(key,0)) for s in suites) for key in ['failures','errors','skipped']}
+  row.update(tests=count,**totals,exit_code=int(bool(totals['failures']+totals['errors'])))
 (O/'checks.json').write_text(json.dumps(checks,indent=2))
-passed=sum(x.get('pass',0) if x['name']=='javascript' else x['tests']-x.get('skipped',0) for x in checks)
+passed=sum(x.get('pass',0) if x['name']=='javascript' else x['tests']-x.get('skipped',0)-x.get('failures',0)-x.get('errors',0) for x in checks)
 live=load('live-groq.json') if (O/'live-groq.json').exists() else None
 esc=html.escape
 def table(headers,rows):return '<div class="scroll"><table><thead><tr>'+''.join('<th>'+esc(str(x))+'</th>' for x in headers)+'</tr></thead><tbody>'+''.join('<tr>'+''.join('<td>'+str(v)+'</td>' for v in row)+'</tr>' for row in rows)+'</tbody></table></div>'
