@@ -519,7 +519,8 @@ class DailyTaskIn(BaseModel):
 def set_daily_task(body: DailyTaskIn, current=Depends(session), db=Depends(db_dep)):
     with WRITE_LOCK:
         user_id = current.buyer_id
-        plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == user_id)))
+        plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == user_id,
+                     PlanningRecord.kind.in_(("goal","allocation","emi","supplier_invoice","receivable")))))
         prefs = db.get(Personalization, user_id).data
         relevant = daily_suggestions(db, user_id, workspace(prefs), observations(db, user_id), plans)
         if body.id not in {note["id"] for note in relevant}:
@@ -540,7 +541,8 @@ def dashboard(activity: str = "", hour: int | None = None, days: int = 30, curre
     purpose = workspace(prefs, activity, hour)
     financial = finance.summary(db, current.buyer_id, purpose, days=min(max(days, 7), 90))
     bills = [row for row in bill_rows(db, current.buyer_id) if purpose == "all" or row["purpose"] == purpose]
-    plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == current.buyer_id)))
+    plans = list(db.scalars(select(PlanningRecord).where(PlanningRecord.user_id == current.buyer_id,
+                 PlanningRecord.kind.in_(("goal","allocation","emi","supplier_invoice","receivable")))))
     # The savings estimate always uses a 30-day baseline, independently of the chart range.
     month = financial if days == 30 else finance.summary(db, current.buyer_id, purpose)
     allocation = finance.spending_allocation(financial["balance_minor"], purpose, bills, plans,
@@ -1470,13 +1472,33 @@ class AskIn(BaseModel):
 
 class PrivacyIn(BaseModel):
     allow_model_questions: bool
+    allow_model_records: bool | None = None
+
+
+@router.post('/retrieval/search')
+def retrieval_search(body: AskIn, current=Depends(session), db=Depends(db_dep)):
+    from .v2_retrieval import retrieve
+    docs, _, count = retrieve(db,current.buyer_id,body.message)
+    db.commit()
+    return {'index_size':count,'strategy':'local word and character TF-IDF cosine search',
+            'records_sent_to_model':False,'sources':docs}
+
+
+from .v2_scenario_engine import ScenarioIn
+
+@router.post('/seller/scenario')
+def preview_cash_scenario(body: ScenarioIn,current=Depends(session),db=Depends(db_dep)):
+    from .v2_scenario_engine import evaluate
+    return evaluate(db,current.buyer_id,body)
 
 
 @router.put("/privacy")
 def privacy_settings(body: PrivacyIn, current=Depends(session), db=Depends(db_dep)):
     row = db.get(Personalization, current.buyer_id)
     row.data = row.data | {"allow_model_questions": body.allow_model_questions}
-    return {"allow_model_questions": body.allow_model_questions}
+    if body.allow_model_records is not None:
+        row.data = row.data | {"allow_model_records": body.allow_model_records}
+    return {"allow_model_questions": body.allow_model_questions, "allow_model_records": row.data.get('allow_model_records',False)}
 
 
 @router.get("/transparency")
@@ -1497,6 +1519,7 @@ def transparency(current=Depends(session), db=Depends(db_dep)):
             "storage": {"engine": db.bind.dialect.name,
                         "ephemeral": settings.hosted_demo and db.bind.dialect.name == "sqlite"},
             "model_questions_enabled": prefs.get("allow_model_questions", True),
+            "model_records_enabled": prefs.get("allow_model_records", False),
             "model_available": llm.available(), "provider": llm.PROVIDER if llm.available() else None,
             "impact": {"committed_minor": allocation["committed_minor"], "reserved_minor": allocation["reserved_minor"],
                        "savings_minor": allocation["savings_minor"], "flexible_minor": allocation["flexible_minor"],
@@ -1518,7 +1541,8 @@ def ask(body: AskIn, request: Request, current=Depends(session), db=Depends(db_d
         "request_id": getattr(request.state, "request_id", ""), "input": {
         "message": body.message, "user_id": current.buyer_id,
         "workspace_id": current.workspace_id, "language": prefs.get("language", "en"),
-        "allow_model_questions": prefs.get("allow_model_questions", True)}})
+        "allow_model_questions": prefs.get("allow_model_questions", True),
+        "allow_model_records": prefs.get("allow_model_records", False)}})
     db.add(run)
     db.flush()
     job = publish(db, topic="tara.resume", aggregate_id=run.id, aggregate_type="agent",

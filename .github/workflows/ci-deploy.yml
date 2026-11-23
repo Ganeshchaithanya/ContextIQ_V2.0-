@@ -60,6 +60,10 @@ jobs:
           PAYPAL_ENV: mock
           CONTEXTIQ_LEGACY_TEST_AUTH: "0"
           CONTEXTIQ_MOCK_STORE: ${{ runner.temp }}/contextiq-seller-mock.json
+      - run: python -m pytest tests/test_retrieval_imports.py -q
+        env:
+          GROQ_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
       - run: python -m pytest tests/test_flows.py -q
         env:
           PAYPAL_ENV: mock

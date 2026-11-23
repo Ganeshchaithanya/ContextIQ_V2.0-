@@ -157,6 +157,7 @@ class AgentState(TypedDict, total=False):
     sources: list
     analysis: dict
     allow_model_questions: bool
+    allow_model_records: bool
 
 
 class AgentContext(TypedDict):
@@ -316,12 +317,22 @@ def support(state, runtime: Runtime[AgentContext]):
     return {"analysis": financial_analysis(runtime.context["db"], state["user_id"], state["topic"])}
 
 
+def retrieve_and_reason(state, runtime: Runtime[AgentContext]):
+    prefs = runtime.context['db'].get(Personalization,state['user_id']).data
+    if not state.get('allow_model_records',False) or not prefs.get('allow_model_records',False) or not prefs.get('allow_model_questions',True):
+        return {}
+    from .v2_retrieval import grounded_answer
+    return grounded_answer(runtime.context['db'],state)
+
+
 graph = StateGraph(AgentState, context_schema=AgentContext)
 graph.add_node("route", route)
 graph.add_node("explain", explain)
 graph.add_node("support", support)
+graph.add_node("retrieve_and_reason", retrieve_and_reason)
 graph.set_entry_point("route")
 graph.add_edge("route", "explain")
 graph.add_edge("explain", "support")
-graph.add_edge("support", END)
+graph.add_edge("support", "retrieve_and_reason")
+graph.add_edge("retrieve_and_reason", END)
 supervisor = graph.compile()

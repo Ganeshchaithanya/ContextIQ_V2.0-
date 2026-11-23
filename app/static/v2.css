@@ -1904,3 +1904,8 @@ dialog .actions {
 .ai-impact:not([open]) .ai-impact-toggle::after { content: "Expand +"; }
 .ai-impact:not([open]) { padding-block: 14px; }
 .ai-impact-note a { margin-left: 8px; text-decoration: underline; }
+
+.decision-card {margin:12px 0 20px;padding:18px 22px;border-left:4px solid #6b9824;background:#e7f2d7;border-radius:12px;color:#213b15;}
+.decision-card > strong {font-size:23px;}.decision-card ul{margin:8px 0 0;padding-left:20px;}
+.retrieval-badge {font-size:12px;color:#345421;margin-top:14px;}.retrieval-proof {margin:12px 0;}.retrieval-proof summary{cursor:pointer;font-weight:600;}
+#csv-text{font-family:ui-monospace,monospace;font-size:13px;min-height:220px;}#csv-preview{margin-top:22px;overflow-wrap:anywhere;}

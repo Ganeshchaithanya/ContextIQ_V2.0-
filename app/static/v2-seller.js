@@ -11,6 +11,7 @@
     ["seller/forecast", "Cash forecast"],
     ["seller/bills", "Bills"],
     ["seller/settings", "Business settings"],
+    ["seller/import", "Import & export"],
     ["knowledge", "Knowledge base"],
   ];
   const PAYMENT_METHODS = [["upi", "UPI"], ["bank", "Bank transfer"], ["cash", "Cash"], ["cheque", "Cheque"]];
@@ -347,8 +348,27 @@
             <div class="actions"><button type="submit" class="btn green">Run what-if</button></div>
           </form>
           <div id="seller-whatif-result" aria-live="polite"></div>
+        <details style="margin-top:24px"><summary>Build a read-only cash scenario</summary><p>Change assumptions without changing your cash, invoices or bill dates. Amounts are rupees.</p><form id="scenario-preview-form"><div class="seller-two">
+        <div class="form-field"><label for="scenario-days">Days to cover</label><input id="scenario-days" name="horizon_days" type="number" min="1" max="90" value="7" required></div>
+        <div class="form-field"><label for="scenario-client">Delayed client (optional)</label><select id="scenario-client" name="customer_id">${options.replace('All customers (delay applies to everyone)','No selected client')}</select></div>
+        <div class="form-field"><label for="scenario-delay">Client delay, days</label><input id="scenario-delay" name="delay_days" type="number" min="0" max="120" value="0"></div>
+        <div class="form-field"><label for="scenario-date">Or receipt not before</label><input id="scenario-date" name="defer_until" type="date"></div>
+        <div class="form-field"><label for="scenario-expense">Hypothetical extra expense (₹)</label><input id="scenario-expense" name="extra_expense" type="number" min="0" step="0.01" value="0"></div>
+        <div class="form-field"><label for="scenario-cash">Hypothetical opening cash (₹, optional)</label><input id="scenario-cash" name="cash_override" type="number" min="0" step="0.01" placeholder="Use recorded cash"></div></div>
+        <label class="form-check"><input type="checkbox" name="exclude_client_receipts"><span>Exclude all selected client receipts in this preview</span></label><button type="submit" class="btn green">Preview decision</button></form><div id="scenario-preview-result" aria-live="polite"></div></details>
         </section>`,
     };
+  }
+
+  async function importView() {
+    const examples = {
+      customers: "name,email,phone,usual_payment_delay_days\nDemo Client,client@example.com,,10",
+      bills: `name,amount,due_date,recurrence\nOffice supplies,250,${todayIso()},none`,
+      invoices: `customer,description,quantity,unit_price,issue_date,due_date\nBengaluru Fintech Labs,Design work,1,500,${todayIso()},${shiftIso(todayIso(),15)}`,
+      transactions: `title,amount,direction,date,purpose,category,external_id\nDemo sale,150,income,${todayIso()},business,sales,demo-sale-001`,
+    };
+    window.contextiqImportExamples = examples;
+    return {title:"Import & export", subtitle:"Preview records before saving. No payments are executed.", html:`<section class="panel"><h2>Bring your records</h2><p>Use anonymized copies in this hosted prototype. Check the preview carefully: confirmed transactions change recorded cash; imported invoices remain drafts.</p><form id="csv-preview-form"><label for="csv-kind">Record type</label><select id="csv-kind" name="kind">${Object.keys(examples).map(k=>`<option value="${k}">${k[0].toUpperCase()+k.slice(1)}</option>`).join("")}</select><label for="csv-file">Choose CSV file (optional)</label><input id="csv-file" type="file" accept=".csv,text/csv"><label for="csv-text">CSV contents</label><textarea id="csv-text" name="csv_text" rows="9" maxlength="200000" required>${examples.customers}</textarea><p class="field-hint">Up to 300 rows. Amounts are rupees with at most two decimal places. Each invoice row becomes one single-line draft. Identical rows are skipped; use an external_id to distinguish transaction records.</p><button class="btn green" type="submit">Preview import</button></form><div id="csv-preview" aria-live="polite"></div></section><section class="panel"><h2>Keep an owner-scoped copy</h2><p>Download your customers, bills, receivables and ledger as JSON. This is a data export, not a complete database backup or an automatic restore package. Free hosting can still reset.</p><button type="button" class="btn white" id="download-workspace">Download my records</button></section>`};
   }
 
   // ---------- bills ----------
@@ -384,6 +404,7 @@
     customers: () => customersView(),
     forecast: (query) => forecastView(query),
     bills: () => billsView(),
+    import: () => importView(),
   };
 
   async function sellerPage() {
@@ -504,6 +525,29 @@
   }
 
   const SUBMITS = {
+    async "scenario-preview-form"(form) {
+      const result = await api('/seller/scenario', {
+        horizon_days:Number(form.elements.horizon_days.value),
+        customer_id:form.elements.customer_id.value || null,
+        delay_days:Number(form.elements.delay_days.value || 0),
+        defer_until:form.elements.defer_until.value || null,
+        exclude_client_receipts:form.elements.exclude_client_receipts.checked,
+        extra_expense_minor:toPaise(form.elements.extra_expense.value || 0),
+        cash_override_minor:form.elements.cash_override.value === '' ? null : toPaise(form.elements.cash_override.value)
+      });
+      const s=result.analysis.scenario;
+      document.getElementById('scenario-preview-result').innerHTML=messageHtml({question:'Read-only scenario preview',...result})+`<details><summary>Daily scenario figures</summary><div class="table-wrap"><table class="seller-table"><thead><tr><th>Date</th><th>Receipts</th><th>Bills/expenses</th><th>Balance</th></tr></thead><tbody>${s.days.map(d=>`<tr><td>${esc(d.date)}</td><td>${rupee(d.inflow_minor)}</td><td>${rupee(d.outflow_minor)}</td><td>${rupee(d.balance_minor)}</td></tr>`).join('')}</tbody></table></div></details>`;
+    },
+    async "csv-preview-form"(form) {
+      const result=await api('/imports/preview',{kind:form.elements.kind.value,csv_text:form.elements.csv_text.value});
+      document.getElementById('csv-preview').innerHTML=`<h3>Preview: ${result.ready} ready · ${result.duplicates} duplicates · ${result.errors} errors</h3><p>${esc(result.warning)}</p><div class="table-wrap"><table class="seller-table"><thead><tr><th>CSV line</th><th>Status</th><th>Record / error</th></tr></thead><tbody>${result.rows.map(r=>`<tr><td>${r.line}</td><td>${esc(r.status)}</td><td>${esc(r.error || JSON.stringify(r.data))}</td></tr>`).join('')}</tbody></table></div>${result.can_confirm ? `<form id="csv-confirm-form" data-preview-id="${esc(result.preview_id)}"><label class="form-check"><input type="checkbox" name="confirmed" required><span>I verified these records and want to save them.</span></label><button type="submit" class="btn green">Confirm import</button></form>` : '<p>Fix errors or remove duplicate records before importing.</p>'}`;
+    },
+    async "csv-confirm-form"(form) {
+      if(!form.elements.confirmed.checked)return;
+      const result=await api('/imports/confirm',{preview_id:form.dataset.previewId,confirmed:true});
+      document.getElementById('csv-preview').textContent=`Imported ${result.imported} records; skipped ${result.skipped}. No payment was executed.`;
+      toast('Records imported. Related balances update from the ledger.');
+    },
     async "seller-settings-form"(form) {
       if (!form.reportValidity()) return;
       await api("/seller/settings", {
@@ -637,3 +681,15 @@
     }
   }, 60000);
 })();
+
+document.addEventListener('change',async event=>{
+ if(event.target.id==='csv-kind')document.getElementById('csv-text').value=window.contextiqImportExamples[event.target.value];
+ if(event.target.id==='csv-file' && event.target.files[0]){
+   const file=event.target.files[0];if(file.size>200000){toast('CSV must be smaller than 200 KB');return;}
+   document.getElementById('csv-text').value=await file.text();
+ }
+});
+document.addEventListener('click',async event=>{
+ if(event.target.id!=='download-workspace')return;
+ try{const data=await api('/workspace/export');const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='contextiq-my-records.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){toast(e.message);}
+});

@@ -3,6 +3,7 @@
 .seller-page { max-width: 1120px; min-width: 0; display: grid; gap: 18px; }
 .seller-page > *, .seller-page .panel { min-width: 0; }
 .seller-page .table-wrap { position: relative; width: 100%; max-width: 100%; overflow-x: auto; }
+.seller-page a[href="#/knowledge/cash-forecast"] { display: inline-flex; align-items: center; min-height: 32px; padding: 4px 0; }
 .seller-tabs { flex-wrap: wrap; margin-bottom: 4px; }
 .seller-tabs a:focus-visible,
 .seller-page a:focus-visible,

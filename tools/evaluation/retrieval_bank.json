@@ -1,0 +1,18 @@
+[
+ {"question":"What cash is currently recorded for the business?","primary_source":"cash:current"},
+ {"question":"Is there any money left once commitments and savings are accounted for?","primary_source":"cash:current"},
+ {"question":"Tell me how this platform helps a sole trader","primary_source":"platform:scope"},
+ {"question":"Does scanning a payment code authorize a transfer?","primary_source":"platform:privacy"},
+ {"question":"What happens to this demo's database when the host restarts?","primary_source":"platform:privacy"},
+ {"question":"Are my unpaid invoices the same as money received?","primary_source":"platform:money"},
+ {"question":"Does the cash forecast include work I have not invoiced yet?","primary_source":"platform:money"},
+ {"question":"What is outstanding on INV-0004 for Bengaluru Fintech Labs?","primary_source":"invoice_number:INV-0004"},
+ {"question":"Has INV-0009 been paid by Bengaluru Fintech Labs?","primary_source":"invoice_number:INV-0009"},
+ {"question":"When do I owe the Laptop EMI and how much is it?","primary_source":"bill_name:Laptop EMI"},
+ {"question":"What is the Adobe Creative Cloud bill amount?","primary_source":"bill_name:Adobe Creative Cloud"},
+ {"question":"Find my studio rent shared workspace obligation","primary_source":"bill_name:Studio rent (shared workspace)"},
+ {"question":"What usual payment delay is recorded for Jaipur Handloom Store?","primary_source":"customer_name:Jaipur Handloom Store"},
+ {"question":"Explain receiving money safely with a UPI PIN","primary_source":"guide:receiving-upi"},
+ {"question":"My UPI payment is pending, where can I complain?","primary_source":"guide:pending-upi"},
+ {"question":"How do I record a partial client payment?","primary_source":"guide:partial-receipts"}
+]

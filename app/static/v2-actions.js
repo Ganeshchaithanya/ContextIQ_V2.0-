@@ -622,7 +622,9 @@ async function submit(form) {
   }
   if (form.id === "privacy-form") {
     const value = form.elements.allow_model_questions.checked;
-    await api("/privacy", {allow_model_questions: value}, "PUT");
+    const records = Boolean(form.elements.allow_model_records?.checked);
+    await api("/privacy", {allow_model_questions: value, allow_model_records: records}, "PUT");
+    S.profile.allow_model_records = records;
     S.profile.allow_model_questions = value;
     toast("AI privacy choice saved");
     return render();
@@ -798,9 +800,9 @@ window.addEventListener("resize", () => {
 });
 async function boot() {
   try {
-    const session = await api("/session");
+    const [session, profile] = await Promise.all([api("/session"), api("/profile")]);
     S.csrf = session.csrf;
-    S.profile = await api("/profile");
+    S.profile = profile;
   } catch (error) {
     if (error.status !== 401) toast(error.message);
   }

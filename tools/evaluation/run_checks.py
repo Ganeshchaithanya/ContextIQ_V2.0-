@@ -2,13 +2,13 @@
 import json,os,subprocess,sys,time,xml.etree.ElementTree as ET
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
-OUT=ROOT/'reports'/'evaluation-2026-11-22';OUT.mkdir(parents=True,exist_ok=True)
+OUT=ROOT/'reports'/'evaluation-2026-11-23';OUT.mkdir(parents=True,exist_ok=True)
 env=os.environ.copy()
 temp=OUT/'tmp';temp.mkdir(exist_ok=True)
 env.update(TEMP=str(temp),TMP=str(temp),PAYPAL_ENV='mock',CONTEXTIQ_WORKER_MODE='off',GROQ_API_KEY='',ANTHROPIC_API_KEY='',COVERAGE_FILE=str(OUT/'.coverage'))
 env.pop('POSTGRES_TEST_URL',None)
 results=[]
-for name in ['test_v2','test_seller','test_operations','test_experience','test_flows','test_postgres_operations']:
+for name in ['test_v2','test_seller','test_retrieval_imports','test_operations','test_experience','test_flows','test_postgres_operations']:
  env['CONTEXTIQ_LEGACY_TEST_AUTH']='1' if name=='test_flows' else '0'
  xml=OUT/(name+'.xml');start=time.perf_counter()
  cmd=[sys.executable,'-m','coverage','run','--branch','--parallel-mode','--source=app','-m','pytest','tests/'+name+'.py','-o','addopts=','-q','-p','no:cacheprovider','--junitxml='+str(xml)]
