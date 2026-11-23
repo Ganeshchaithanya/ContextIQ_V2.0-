@@ -44,7 +44,8 @@ def run():
             c.headers['x-csrf-token']=r.json()['csrf']
             p=c.get('/api/v2/profile').json();c.put('/api/v2/profile',json={**p,'configuration':'business'}).raise_for_status()
             c.put('/api/v2/privacy',json={'allow_model_questions':True,'allow_model_records':True}).raise_for_status()
-            c.post('/api/v2/watch/demo-price-drop').raise_for_status()
+            if any(category=='price' for category,_,_ in BANK[offset:offset+4]):
+                c.post('/api/v2/watch/demo-price-drop').raise_for_status()
             before=c.get('/api/v2/dashboard').json()['finance']['balance_minor']
             for category,question,reference in BANK[offset:offset+4]:
                 t=time.perf_counter();r=c.post('/api/v2/ask',json={'message':question});r.raise_for_status();d=r.json()

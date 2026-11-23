@@ -12,7 +12,7 @@ from .outbox import dispatch_pending, on, publish
 
 def schedule():
     from .v2_models import DemoSession, PriceWatch
-    from .v2_watch import CHECK_AFTER
+    from .v2_watch import CHECK_AFTER, DEMO_PRICE_URL
     stamp = datetime.now(UTC)
     bucket = int(stamp.timestamp()) // 60
     with SessionLocal.begin() as db:
@@ -31,6 +31,7 @@ def schedule():
                     dedupe_key=f"workspace:{session.token_hash}:{bucket}")
         users = [session.buyer_id for session in sessions]
         watches = db.scalars(select(PriceWatch).where(PriceWatch.enabled,
+            PriceWatch.source_url != DEMO_PRICE_URL,
             PriceWatch.user_id.in_(users), PriceWatch.checked_at <= stamp - CHECK_AFTER).limit(12))
         for watch in watches:
             publish(db, topic="watch.refresh", aggregate_id=watch.id, aggregate_type="watch",
