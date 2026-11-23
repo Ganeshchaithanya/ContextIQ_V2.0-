@@ -23,7 +23,7 @@ CALL_LOCK=Lock()
 PLATFORM = (
  ('platform:scope', 'What ContextIQ does', 'ContextIQ connects cash, invoices, partial receipts, recurring bills, spending allocation, purchase plans, a separate BrightMart cart, signed payment QR, delivery, returns, warranties and evidence. Tara is a movable visual guide and an assistant. Payments and delivery actions are simulated. Final payment approval belongs to the human.', '#/home'),
  ('platform:money', 'How cash, budget and forecasts work', 'Recorded cash comes from ledger entries. Unpaid invoices are receivables, not money received. Allocation considers bills, reserves and savings. Future cash projection assumes existing invoices and scheduled bills, not new work or guaranteed income. An EMI bill can exist without a loan amortization schedule. A forecast is a conditional scenario, not a guarantee.', '#/seller/forecast'),
- ('platform:privacy', 'Privacy and hosting', 'Question-only cloud classification and retrieved-record cloud reasoning have separate privacy choices. SQLite records are on the backend, not exclusively on the phone. Free hosting can sleep and the filesystem can reset. Tara cannot authorize payments, change bills or send messages through chat. Official guides contain review dates and source links.', '#/transparency'),
+ ('platform:privacy', 'Privacy and hosting', 'Question-only cloud classification and retrieved-record cloud reasoning have separate privacy choices. When both are enabled, selected financial records and the question are transmitted to the configured cloud provider, Groq in this demo, for reasoning. Keeping SQLite on the backend does not prevent this authorized external transmission. Exports are not the only way records can leave the backend. SQLite records are on the backend, not exclusively on the phone. Free hosting can sleep and the filesystem can reset. Tara cannot authorize payments, change bills or send messages through chat. Official guides contain review dates and source links.', '#/transparency'),
  ('platform:imports','Import and export business records','Back office → Import & export accepts CSV customers, bills, single-line draft invoices and transactions. Preview validates up to 300 rows and detects duplicates. Explicit confirmation saves records; confirmed transactions affect recorded cash, not a bank account. Invoices are drafts and are never sent automatically. Use external_id to distinguish transaction rows. Owner-only JSON export is not a complete database backup or automatic restore package. Use anonymized copies in the hosted prototype.','#/seller/import'),
  ('platform:scenarios','Preview cash decisions without changing records','Cash forecast contains a read-only scenario editor: a 1–90 day window, one selected client, a 0–120 day delay or receipt-not-before date, exclusion of client receipts, hypothetical opening cash and an extra expense. Code computes daily cash. Yes means cash alone covers recorded bills; uncertain means scheduled receipts are needed; no means the projection has a gap. These assumptions never change invoices or execute payments.','#/seller/forecast'),
 )
@@ -155,7 +155,7 @@ def direct_record_fallback(db, owner, question, docs):
 def grounded_answer(db,state):
     prefs=db.get(Personalization,state['user_id']).data
     if not prefs.get('allow_model_records',False) or not prefs.get('allow_model_questions',True):return {}
-    if state['topic'] in ('blocked','greeting'):return {}
+    if state['topic'] in ('blocked','greeting','privacy'):return {}
     if state['topic']=='cash_scenario' and not (state.get('analysis') or {}).get('scenario',{}).get('inputs'):
         return {}  # Do not let a language model replace a required client/date clarification.
     docs,analysis,count=retrieve(db,state['user_id'],state['message'],limit=7)
@@ -218,6 +218,8 @@ def grounded_answer(db,state):
     if any(s not in sources for s in reply.source_ids):
         info['status']='invalid_citation_fallback';return {**fallback,'analysis':base}
     output=' '.join([reply.answer,*reply.rationale,*reply.assumptions])
+    if re.search(r'\bGroq\b|\bcloud\b|third.party|external provider|\bdata\b.*(?:sent|shared|leave)|\brecords?\b.*(?:shared|leave)',output,re.I):
+        info['status']='privacy_claim_fallback';return {**fallback,'analysis':base}
     # Reject unsupported quoted currency amounts; the code's supplied context is authoritative.
     amounts=lambda text:{m.replace(',','').rstrip('0').rstrip('.') if '.' in m else m.replace(',','') for m in re.findall(r'(?:₹|Rs\.?\s*|INR\s*)([\d,]+(?:\.\d{1,2})?)',text,re.I)}
     if not amounts(output).issubset(amounts(json.dumps(context,ensure_ascii=False))):

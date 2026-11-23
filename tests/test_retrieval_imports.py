@@ -319,3 +319,21 @@ def test_provider_failures_are_classified_without_exposing_credentials(monkeypat
         response.raise_for_status()
     monkeypatch.setattr(llm.httpx,'post',fail)
     assert llm.complete('fixture','fixture') is None and llm.last_result()=={'status':expected}
+
+
+@pytest.mark.parametrize('enabled',[False,True])
+def test_privacy_disclosure_comes_from_settings_and_never_model(client,monkeypatch,enabled):
+    client.put('/api/v2/privacy',json={'allow_model_questions':True,'allow_model_records':enabled}).raise_for_status()
+    monkeypatch.setattr(llm,'complete',lambda *a,**k:pytest.fail('A model cannot rewrite a data-sharing disclosure'))
+    result=client.post('/api/v2/ask',json={'message':'Are my records sent to Groq when I allow record reasoning?'}).json()
+    assert result['routing']=='privacy_policy' and 'selected relevant financial records' in result['answer']
+    assert ('currently ON' if enabled else 'currently OFF') in result['answer']
+    assert result['destination']=='#/transparency'
+
+
+def test_model_cannot_add_false_privacy_claim_to_a_financial_answer(client,monkeypatch):
+    optin(client);monkeypatch.setattr(llm,'available',lambda:True)
+    monkeypatch.setattr(llm,'complete',lambda *a,**k:reply(answer='Your data never leaves the backend or reaches Groq.'))
+    result=client.post('/api/v2/ask',json={'message':'Show my recorded cash balance'}).json()
+    assert result['analysis']['retrieval']['status']=='privacy_claim_fallback'
+    assert 'never leaves' not in result['answer'] and result['routing']!='retrieval_llm'

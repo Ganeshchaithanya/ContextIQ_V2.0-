@@ -186,6 +186,8 @@ def route(state):
     message = state["message"].lower()
     if re.search(r"^(?:please\s+)?(pay\b|transfer\b|send money\b|approve (?:this )?payment\b|पैसे भेज|भुगतान करो|ಹಣ ಕಳುಹಿ)", message):
         return {"topic": "blocked", "routing": "rules"}
+    if re.search(r'groq|privacy|data.*(?:sent|shared|leave|device|stored)|records?.*(?:sent|shar|leave|stored)|approve.*purchase|cloud.*(?:record|data)|who.*(?:access|see).*data',message):
+        return {"topic":"privacy","routing":"privacy_policy"}
     from .v2_scenarios import is_cash_scenario
     if is_cash_scenario(message):
         return {"topic": "cash_scenario", "routing": "records_scenario"}
@@ -212,6 +214,15 @@ def explain(state, runtime: Runtime[AgentContext]):
     template = TEXT[lang]
     money = lambda value: f"₹{value / 100:,.2f}"
     facts, destination, evidence = {}, "#/ask", []
+    if topic == 'privacy':
+        prefs=db.get(Personalization,uid).data
+        enabled=bool(prefs.get('allow_model_questions',True) and prefs.get('allow_model_records',False))
+        return {'answer':"The two separate privacy choices must both be enabled for record-aware cloud reasoning. "
+                "When enabled, Tara sends your question and selected relevant financial records to the configured cloud provider (Groq in this demo). "
+                f"Record sharing is currently {'ON' if enabled else 'OFF'} in this workspace. "
+                "The complete database is not sent. Question-only understanding can still send your question when its own permission is on. "
+                "Change these choices in AI & Privacy. Tara cannot approve purchases, authorize payments or send money; those decisions stay with you.",
+                'destination':'#/transparency','sources':[],'evidence':[]}
     if topic == "cash_scenario":
         from .v2_scenarios import cash_scenario
         return cash_scenario(db, uid, state['message'])
@@ -315,7 +326,7 @@ def explain(state, runtime: Runtime[AgentContext]):
 
 
 def support(state, runtime: Runtime[AgentContext]):
-    if state.get("analysis") or state["topic"] in ("knowledge", "blocked", "safety", "greeting", "fallback"):
+    if state.get("analysis") or state["topic"] in ("knowledge", "blocked", "safety", "greeting", "fallback", "privacy"):
         return {}
     from .v2_analysis import financial_analysis
     return {"analysis": financial_analysis(runtime.context["db"], state["user_id"], state["topic"])}
